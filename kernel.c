@@ -3,6 +3,7 @@
 #include "logo.h"
 #include "render.h"
 #include "strutil.h"
+#include "version.h"
 #include <stdint.h>
 
 typedef struct {
@@ -92,7 +93,7 @@ void kernel_main(multiboot_info_t *mbd) {
 
   int text_y = logo_y + logo_height + 40;
 
-  const char *msg = "VG OS Versao 0.3.3-beta";
+  const char *msg = OS_BANNER;
   int msg_largura = minha_strlen(msg) * 16;
   int msg_x = (width - msg_largura) / 2;
 
@@ -119,8 +120,10 @@ void kernel_main(multiboot_info_t *mbd) {
   // O Loop do Terminal
   while (1) {
     int tecla = teclado_ler();
-    if (tecla == TECLA_NENHUMA)
+    if (tecla == TECLA_NENHUMA) {
+      asm volatile("pause");
       continue;
+    }
 
     switch (tecla) {
     case TECLA_CTRL_L:
@@ -141,12 +144,26 @@ void kernel_main(multiboot_info_t *mbd) {
       break;
 
     default: {
+      if (tecla < 0) {
+        // Teclas estendidas que não geram ASCII (como setas, Delete, etc.)
+        // ignoradas por enquanto
+        break;
+      }
       char c = (char)tecla;
       if (c == '\b') {
-        if (cursor_x > cursor_base_x && linha_len > 0) {
-          cursor_x -= 16;
-          desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
-          linha_len--;
+        if (linha_len > 0) {
+          int min_x = (cursor_y == terminal_y_inicial) ? cursor_base_x : 50;
+          if (cursor_x > min_x) {
+            cursor_x -= 16;
+            desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
+            linha_len--;
+          } else if (cursor_y > terminal_y_inicial) {
+            cursor_y -= 24;
+            int chars_por_linha = (width - 100) / 16;
+            cursor_x = 50 + (chars_por_linha - 1) * 16;
+            desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
+            linha_len--;
+          }
         }
       } else if (c == '\n') {
         comando_resultado_t r = comandos_executar(linha_atual, linha_len, fb,
