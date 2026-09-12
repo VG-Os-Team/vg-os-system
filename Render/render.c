@@ -17,8 +17,6 @@ void desenhar_logo(uint32_t *fb, uint32_t pitch, int start_x, int start_y) {
 // Desenha uma única letra (escala 2x)
 void desenhar_char(char c, int x, int y, uint32_t cor, uint32_t *fb,
                    uint32_t pitch) {
-  if ((uint8_t)c > 127)
-    return;
   const uint8_t *bitmap = font8x8_basic[(uint8_t)c];
 
   for (int row = 0; row < 8; row++) {

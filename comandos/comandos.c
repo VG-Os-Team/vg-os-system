@@ -1,6 +1,7 @@
 #include "comandos.h"
 #include "../strutil.h"
 #include "render.h"
+#include "version.h"
 
 static int comando_igual(const char *linha, int len, const char *cmd) {
   int cmd_len = minha_strlen(cmd);
@@ -19,22 +20,32 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
   if (len == 0)
     return COMANDO_OK; // Enter sem digitar nada
 
-  if (comando_igual(linha, len, "!helpet")) {
+  if (comando_igual(linha, len, "help") ||
+      comando_igual(linha, len, "helpet")) {
     *cursor_y += 24;
-    desenhar_string("Comandos disponiveis:", 50, *cursor_y, 0x00FFFFFF, fb,
+    desenhar_string("------Comandos disponiveis:------", 50, *cursor_y, 0x00FFFFFF, fb,
                     pitch);
     *cursor_y += 24;
-    desenhar_string("help   - mostra esta lista", 50, *cursor_y, 0x00AAAAAA, fb,
-                    pitch);
-    *cursor_y += 24;
-    desenhar_string("clear  - limpa o terminal (tambem Ctrl+L)", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("Ctrl+C - copia a linha atual", 50, *cursor_y, 0x00AAAAAA,
+    desenhar_string("help    - mostra esta lista", 50, *cursor_y, 0x00AAAAAA,
                     fb, pitch);
     *cursor_y += 24;
-    desenhar_string("Ctrl+V - cola o que foi copiado", 50, *cursor_y,
+    desenhar_string("version - mostra a versao do sistema", 50, *cursor_y,
                     0x00AAAAAA, fb, pitch);
+    *cursor_y += 24;
+    desenhar_string("clear   - limpa o terminal (tambem Ctrl+L)", 50, *cursor_y,
+                    0x00AAAAAA, fb, pitch);
+    *cursor_y += 24;
+    desenhar_string("Ctrl+C  - copia a linha atual", 50, *cursor_y, 0x00AAAAAA,
+                    fb, pitch);
+    *cursor_y += 24;
+    desenhar_string("Ctrl+V  - cola o que foi copiado", 50, *cursor_y,
+                    0x00AAAAAA, fb, pitch);
+    return COMANDO_OK;
+  }
+
+  if (comando_igual(linha, len, "version")) {
+    *cursor_y += 24;
+    desenhar_string(OS_BANNER, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
     return COMANDO_OK;
   }
 
