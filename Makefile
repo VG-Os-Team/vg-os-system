@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -I. -IRender -Ikeyboard -Icomandos -Iimages/logo
+CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -I. -IRender -Ikeyboard -Icomandos -Iimages/logo -Igdt
 AS = as
 ASFLAGS = --32
 LD = ld
@@ -15,7 +15,9 @@ OBJS = $(BUILD_DIR)/boot.o \
        $(BUILD_DIR)/keyboard.o \
        $(BUILD_DIR)/strutil.o \
        $(BUILD_DIR)/logo.o \
-       $(BUILD_DIR)/comandos.o
+       $(BUILD_DIR)/comandos.o \
+       $(BUILD_DIR)/gdt.o \
+       $(BUILD_DIR)/gdt_asm.o
 
 all: $(BIN)
 
@@ -43,6 +45,12 @@ $(BUILD_DIR)/keyboard.o: keyboard/keyboard.c | $(BUILD_DIR)
 $(BUILD_DIR)/comandos.o: comandos/comandos.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/gdt.o: gdt/gdt.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/gdt_asm.o: gdt/gdt_asm.s | $(BUILD_DIR)
+	$(AS) $(ASFLAGS) $< -o $@
+
 $(BIN): $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $(OBJS)
 
@@ -53,4 +61,4 @@ iso: $(BIN)
 	grub-mkrescue -o $(ISO) iso_root
 
 clean:
-	rm -rf $(BUILD_DIR) $(ISO) *.o meuos.bin Render/*.o keyboard/*.o comandos/*.o images/logo/*.o
+	rm -rf $(BUILD_DIR) $(ISO) *.o meuos.bin Render/*.o keyboard/*.o comandos/*.o images/logo/*.o gdt/*.o
