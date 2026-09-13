@@ -14,22 +14,18 @@ void desenhar_logo(uint32_t *fb, uint32_t pitch, int start_x, int start_y) {
   }
 }
 
-// Desenha uma única letra (escala 2x)
+// Desenha uma única letra em alta resolução
 void desenhar_char(char c, int x, int y, uint32_t cor, uint32_t *fb,
                    uint32_t pitch) {
-  const uint8_t *bitmap = font8x8_basic[(uint8_t)c];
+  const uint16_t *bitmap = font_ibm_plex[(uint8_t)c];
 
-  for (int row = 0; row < 8; row++) {
-    for (int col = 0; col < 8; col++) {
-      if (bitmap[row] & (1 << col)) {
-        for (int dy = 0; dy < 2; dy++)
-          for (int dx = 0; dx < 2; dx++)
-            fb[((y + row * 2 + dy) * pitch / 4) + (x + col * 2 + dx)] = cor;
+  for (int row = 0; row < 24; row++) {
+    uint16_t bits = bitmap[row];
+    for (int col = 0; col < 16; col++) {
+      if (bits & (1 << col)) {
+        fb[((y + row) * pitch / 4) + (x + col)] = cor;
       } else {
-        for (int dy = 0; dy < 2; dy++)
-          for (int dx = 0; dx < 2; dx++)
-            fb[((y + row * 2 + dy) * pitch / 4) + (x + col * 2 + dx)] =
-                0x00000000;
+        fb[((y + row) * pitch / 4) + (x + col)] = 0x00000000;
       }
     }
   }

@@ -2,7 +2,7 @@
 #define VERSION_H
 
 #define OS_NAME "VG OS"
-#define OS_VERSION "0.3.4"
+#define OS_VERSION "0.3.5"
 #define OS_STAGE "beta"
 
 #define OS_BANNER OS_NAME " Versao " OS_VERSION "-" OS_STAGE

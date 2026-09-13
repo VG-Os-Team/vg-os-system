@@ -35,6 +35,9 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
     desenhar_string("clear   - limpa o terminal (tambem Ctrl+L)", 50, *cursor_y,
                     0x00AAAAAA, fb, pitch);
     *cursor_y += 24;
+    desenhar_string("exit    - sai do sistema / desliga", 50, *cursor_y,
+                    0x00AAAAAA, fb, pitch);
+    *cursor_y += 24;
     desenhar_string("Ctrl+C  - copia a linha atual", 50, *cursor_y, 0x00AAAAAA,
                     fb, pitch);
     *cursor_y += 24;
@@ -51,6 +54,10 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
 
   if (comando_igual(linha, len, "clear")) {
     return COMANDO_LIMPAR;
+  }
+
+  if (comando_igual(linha, len, "exit") || comando_igual(linha, len, "sair")) {
+    return COMANDO_EXIT;
   }
 
   // Entrada nao reconhecida: nao mostra erro, kernel avanca o prompt
