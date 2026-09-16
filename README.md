@@ -8,6 +8,7 @@ Um sistema operacional x86 de 32 bits desenvolvido do zero para fins acadêmicos
 ---
 ## 📋 Funcionalidades Principais
 * **Kernel Próprio (Modo Protegido 32-bit):** Escrito em C e Assembly x86 com gerenciamento manual de memória e periféricos.
+* **Gerenciamento e Proteção de Memória:** Configuração da Global Descriptor Table (GDT) com 5 descritores, estruturando o espaço de endereçamento de 32 bits e garantindo a proteção do sistema através de        rotinas de alinhamento de registradores de segmento.
 * **Bootloader Multiboot (GRUB):** Configuração nativa de vídeo via cabeçalho Multiboot, inicializando o modo gráfico diretamente no boot.
 * **Saída Gráfica em Framebuffer Linear (VESA):**
   - Renderização direta pixel a pixel sem depender de interrupções da BIOS em modo real.
@@ -26,7 +27,7 @@ Um sistema operacional x86 de 32 bits desenvolvido do zero para fins acadêmicos
   - Saída de compilação isolada no diretório `build/`.
 ---
 ## 🛠️ Tecnologias e Ferramentas
-* **Linguagens:** C (padrão C99 freestanding) e Assembly x86 (GNU Assembler)
+* **Linguagens:** C (padrão C99 freestanding) e Assembly x86 (GNU Assembler/ NASM)
 * **Compilador / Linker:** GCC (`-m32`, `-ffreestanding`) e GNU LD
 * **Bootloader:** GNU GRUB 2
 * **Emulação / Testes:** QEMU (`qemu-system-i386`)
@@ -57,6 +58,7 @@ qemu-system-x86_64 -cdrom vgos.iso
 ```text
 vg-os-system/
 ├── boot/           # Inicialização em Assembly (boot.s) e configuração do GRUB (grub.cfg)
+├── gdt/            # Implementação da Global Descriptor Table (GDT) e rotinas de alinhamento (gdt.c, gdt.h, gdt_asm.s)
 ├── images/         # Recursos gráficos e logotipo em matriz de pixels (logo/)
 ├── keyboard/       # Driver do controlador de teclado PS/2 e mapeamento de scancodes
 ├── Render/         # Subsistema gráfico em Framebuffer e tabela de fontes (font.h)
