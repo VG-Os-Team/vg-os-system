@@ -1,4 +1,5 @@
 #include "comandos.h"
+#include "gdt.h"
 #include "keyboard.h"
 #include "logo.h"
 #include "render.h"
@@ -77,6 +78,9 @@ static void inserir_char(char c, uint32_t *fb, uint32_t pitch, uint32_t width,
 }
 
 void kernel_main(multiboot_info_t *mbd) {
+  // Troca a GDT provisória do GRUB pela nossa, antes de qualquer outra coisa
+  gdt_instalar();
+
   if (!(mbd->flags & (1 << 12)))
     return;
 
