@@ -5,6 +5,14 @@
 .set MAGIC,      0x1BADB002
 .set CHECKSUM,   -(MAGIC + FLAGS)
 
+.ifndef SCR_WIDTH
+.set SCR_WIDTH, 1920
+.endif
+
+.ifndef SCR_HEIGHT
+.set SCR_HEIGHT, 1080
+.endif
+
 .section .multiboot
 .align 4
 .long MAGIC
@@ -13,8 +21,8 @@
 .long 0, 0, 0, 0, 0 
 
 .long 0         
-.long 1920      
-.long 1080      
+.long SCR_WIDTH      
+.long SCR_HEIGHT      
 .long 32        
 
 .section .bss

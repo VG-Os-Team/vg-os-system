@@ -64,14 +64,18 @@ static void limpar_terminal(uint32_t *fb, uint32_t pitch, uint32_t width,
 // linha, e registra no buffer da linha atual (usado por digitação normal e por
 // Ctrl+V)
 static void inserir_char(char c, uint32_t *fb, uint32_t pitch, uint32_t width,
-                         int *cursor_x, int *cursor_y, char *linha,
-                         int *linha_len) {
+                         uint32_t height, int *cursor_x, int *cursor_y,
+                         char *linha, int *linha_len) {
   if (*linha_len >= LINHA_MAX - 1)
     return;
 
   if (*cursor_x + 16 >= (int)width - 50) {
-    *cursor_y += 24;
-    *cursor_x = 50;
+    if (*cursor_y + 24 < (int)height - 24) {
+      *cursor_y += 24;
+      *cursor_x = 50;
+    } else {
+      return;
+    }
   }
   desenhar_char(c, *cursor_x, *cursor_y, 0x00FFFFFF, fb, pitch);
   *cursor_x += 16;
@@ -128,6 +132,8 @@ void kernel_main(multiboot_info_t *mbd) {
   int header_gap = 50;                         // espaço entre logo e texto
   int total_header_w = (int)logo_width + header_gap + art_total_w;
   int start_x = ((int)width - total_header_w) / 2;
+  if (start_x < 20)
+    start_x = 20;
 
   int logo_x = start_x;
   int logo_y = 20;
@@ -200,8 +206,8 @@ void kernel_main(multiboot_info_t *mbd) {
 
     case TECLA_CTRL_V:
       for (int i = 0; i < clipboard_len; i++)
-        inserir_char(clipboard[i], fb, pitch, width, &cursor_x, &cursor_y,
-                     linha_atual, &linha_len);
+        inserir_char(clipboard[i], fb, pitch, width, height, &cursor_x,
+                     &cursor_y, linha_atual, &linha_len);
       break;
 
     default: {
@@ -234,7 +240,8 @@ void kernel_main(multiboot_info_t *mbd) {
           limpar_terminal(fb, pitch, width, height, terminal_y_inicial,
                           &cursor_x, &cursor_y, &cursor_base_x, &linha_len);
         } else if (r == COMANDO_EXIT) {
-          cursor_y += 24;
+          if (cursor_y + 24 < (int)height - 24)
+            cursor_y += 24;
           desenhar_string("Desligando o VG-OS...", 50, cursor_y, 0x00FFFF00, fb, pitch);
 
           // Tentar desligamento via portas de E/S (QEMU / Bochs / VirtualBox)
@@ -243,7 +250,8 @@ void kernel_main(multiboot_info_t *mbd) {
           outw(0x4004, 0x3400);  // VirtualBox
 
           // Fallback caso a máquina não desligue por porta (ou hardware real sem ACPI)
-          cursor_y += 24;
+          if (cursor_y + 24 < (int)height - 24)
+            cursor_y += 24;
           desenhar_string("Sistema finalizado. Voce pode desligar o computador com seguranca.",
                           50, cursor_y, 0x00AAAAAA, fb, pitch);
           asm volatile("cli");
@@ -251,15 +259,17 @@ void kernel_main(multiboot_info_t *mbd) {
             asm volatile("hlt");
           }
         } else {
-          cursor_y += 24;
+          if (cursor_y + 24 < (int)height - 24) {
+            cursor_y += 24;
+          }
           desenhar_string("root@vgos:~# ", 50, cursor_y, 0x0000FF00, fb, pitch);
           cursor_base_x = 50 + 208;
           cursor_x = cursor_base_x;
           linha_len = 0;
         }
       } else {
-        inserir_char(c, fb, pitch, width, &cursor_x, &cursor_y, linha_atual,
-                     &linha_len);
+        inserir_char(c, fb, pitch, width, height, &cursor_x, &cursor_y,
+                     linha_atual, &linha_len);
       }
       break;
     }
