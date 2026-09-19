@@ -49,9 +49,13 @@ git clone https://github.com/VG-Os-Team/vg-os-system
 ```bash
 make clean && make iso
 ```
-3. Execute o comando abaixo usando o QEMU:
+3. Execute um dos comandos abaixo usando o QEMU:
 ```bash
 qemu-system-x86_64 -cdrom vgos.iso
+```
+ou esse comando (caso prefira):
+```bash
+make run
 ```
 ---
 ## 📁 Estrutura do Repositório
