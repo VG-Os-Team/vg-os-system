@@ -1,7 +1,9 @@
 CC = gcc
-CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -I. -IRender -Ikeyboard -Icomandos -Iimages/logo -Igdt -Iidt
+CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -I. -IRender -Ikeyboard -Icomandos -Iimages/logo -Igdt -Iidt -Iisr
 AS = as
 ASFLAGS = --32
+NASM = nasm
+NASMFLAGS = -f elf32
 LD = ld
 LDFLAGS = -m elf_i386 -T linker.ld
 
@@ -21,7 +23,9 @@ COMMON_OBJS = $(BUILD_DIR)/kernel.o \
               $(BUILD_DIR)/gdt.o \
               $(BUILD_DIR)/gdt_asm.o \
               $(BUILD_DIR)/idt.o \
-              $(BUILD_DIR)/idt_asm.o
+              $(BUILD_DIR)/idt_asm.o \
+              $(BUILD_DIR)/isr.o \
+              $(BUILD_DIR)/interrupts.o
 
 all: $(BIN) $(BIN_1080) $(BIN_1440) $(BIN_1024)
 
@@ -67,6 +71,13 @@ $(BUILD_DIR)/idt.o: idt/idt.c | $(BUILD_DIR)
 $(BUILD_DIR)/idt_asm.o: idt/idt_asm.s | $(BUILD_DIR)
 	$(AS) $(ASFLAGS) $< -o $@
 
+$(BUILD_DIR)/isr.o: isr/isr.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# interrupts.s usa sintaxe NASM (nao GAS), por isso monta com nasm e nao com $(AS).
+$(BUILD_DIR)/interrupts.o: isr/interrupts.s | $(BUILD_DIR)
+	$(NASM) $(NASMFLAGS) $< -o $@
+
 $(BIN_1080): $(BUILD_DIR)/boot_1080.o $(COMMON_OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
 
@@ -92,4 +103,4 @@ run: iso
 	qemu-system-i386 -cdrom $(ISO) -vga std
 
 clean:
-	rm -rf $(BUILD_DIR) $(ISO) *.o meuos.bin Render/*.o keyboard/*.o comandos/*.o images/logo/*.o gdt/*.o idt/*.o iso_root/boot/*.bin
+	rm -rf $(BUILD_DIR) $(ISO) *.o meuos.bin Render/*.o keyboard/*.o comandos/*.o images/logo/*.o gdt/*.o idt/*.o isr/*.o iso_root/boot/*.bin
