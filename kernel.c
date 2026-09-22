@@ -1,6 +1,7 @@
 #include "comandos.h"
 #include "gdt.h"
 #include "idt.h"
+#include "isr.h"
 #include "keyboard.h"
 #include "logo.h"
 #include "render.h"
@@ -88,6 +89,10 @@ void kernel_main(multiboot_info_t *mbd) {
 
   // Instala a Tabela de Interrupções (IDT)
   idt_install();
+
+  // Registra os 32 stubs de exceção (interrupts.s) na IDT
+  isr_install();
+
 
   if (!(mbd->flags & (1 << 12)))
     return;
