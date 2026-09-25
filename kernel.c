@@ -4,6 +4,7 @@
 #include "isr.h"
 #include "keyboard.h"
 #include "logo.h"
+#include "pic/pic.h"
 #include "render.h"
 #include "strutil.h"
 #include "version.h"
@@ -84,6 +85,9 @@ static void inserir_char(char c, uint32_t *fb, uint32_t pitch, uint32_t width,
 }
 
 void kernel_main(multiboot_info_t *mbd) {
+  // Mantém interrupções mascaráveis desabilitadas durante a inicialização
+  asm volatile("cli" ::: "memory");
+
   // Troca a GDT provisória do GRUB pela nossa, antes de qualquer outra coisa
   gdt_instalar();
 
@@ -93,6 +97,8 @@ void kernel_main(multiboot_info_t *mbd) {
   // Registra os 32 stubs de exceção (interrupts.s) na IDT
   isr_install();
 
+  // Remapeia o PIC; as IRQs ficam mascaradas até terem handlers proprios
+  pic_init();
 
   if (!(mbd->flags & (1 << 12)))
     return;
