@@ -25,7 +25,8 @@ COMMON_OBJS = $(BUILD_DIR)/kernel.o \
               $(BUILD_DIR)/idt.o \
               $(BUILD_DIR)/idt_asm.o \
               $(BUILD_DIR)/isr.o \
-              $(BUILD_DIR)/interrupts.o
+              $(BUILD_DIR)/interrupts.o \
+              $(BUILD_DIR)/pic.o
 
 all: $(BIN) $(BIN_1080) $(BIN_1440) $(BIN_1024)
 
@@ -41,7 +42,10 @@ $(BUILD_DIR)/boot_1440.o: boot/boot.s | $(BUILD_DIR)
 $(BUILD_DIR)/boot_1024.o: boot/boot.s | $(BUILD_DIR)
 	$(AS) $(ASFLAGS) --defsym SCR_WIDTH=1024 --defsym SCR_HEIGHT=768 $< -o $@
 
-$(BUILD_DIR)/kernel.o: kernel.c | $(BUILD_DIR)
+$(BUILD_DIR)/kernel.o: kernel.c pic/pic.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/pic.o: pic/pic.c pic/pic.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/strutil.o: strutil.c | $(BUILD_DIR)
