@@ -19,13 +19,62 @@ typedef struct {
     uint32_t eip, cs, eflags;                          // empilhados automaticamente pela CPU
 } __attribute__((packed)) registers_t;
 
-// Handler generico em C, chamado por todos os stubs de excecao (0 a 31).
-// Implementado em isr.c.
+// Faixas de vetores da IDT atendidas por este modulo.
+#define ISR_NUM_EXCECOES  32                                // vetores 0-31: excecoes da CPU
+#define IRQ_VETOR_BASE    32                                // IRQ 0 -> vetor 32 (remapeamento do PIC)
+#define IRQ_NUM_LINHAS    16                                // IRQ 0-15: PIC mestre + escravo
+#define INT_NUM_VETORES   (IRQ_VETOR_BASE + IRQ_NUM_LINHAS) // tamanho da tabela de handlers
+
+// Assinatura dos handlers registrados na tabela de despacho.
+//
+// `regs` aponta para o quadro salvo pelo stub em Assembly, o mesmo que o
+// popa/iret do stub restaura no fim. Como isr_handler/irq_handler recebem o
+// registers_t por valor (contrato do stub), esse endereco e o do proprio quadro
+// empilhado, entao alteracoes em *regs (ex.: eax como valor de retorno, eip
+// para pular uma instrucao) valem na retomada. O ponteiro so e valido durante
+// a chamada: nao guarde.
+//
+// O handler roda com interrupcoes mascaraveis desabilitadas (gate de
+// interrupcao, flags 0x8E, e "cli" no stub). Mantenha-o curto e nao bloqueante;
+// habilitar IF aqui permite reentrada, e isso fica por conta de quem o fizer.
+typedef void (*interrupt_handler_t)(registers_t *regs);
+
+// Registra `handler` para a excecao da CPU `vetor` (0-31).
+// Retorna 0 em sucesso, ou -1 se `vetor` for invalido, `handler` for NULL ou
+// ja existir um handler nesse vetor (use isr_unregister_handler antes para trocar).
+int isr_register_handler(uint8_t vetor, interrupt_handler_t handler);
+
+// Remove o handler da excecao `vetor`; volta ao comportamento padrao (kernel
+// panic). Retorna 0 (inclusive se nao havia handler) ou -1 se `vetor` for invalido.
+int isr_unregister_handler(uint8_t vetor);
+
+// Registra `handler` para a linha de IRQ `irq` (0-15, nao o vetor). O vetor
+// usado na tabela e IRQ_VETOR_BASE + irq. Mesmos codigos de retorno de
+// isr_register_handler. Registrar NAO desmascara a linha no PIC: isso continua
+// sendo responsabilidade do driver.
+int irq_register_handler(uint8_t irq, interrupt_handler_t handler);
+
+// Remove o handler da linha `irq` (0-15). A IRQ passa a ser apenas confirmada
+// no PIC e ignorada. Retorna 0 (inclusive se nao havia handler) ou -1 se `irq`
+// for invalida.
+int irq_unregister_handler(uint8_t irq);
+
+// Despachante das excecoes da CPU (vetores 0-31), chamado por isr_common_stub.
+// Procura o handler em regs.int_no e o invoca com o quadro salvo.
+//  - Sem handler registrado: kernel panic (comportamento padrao).
+//  - Handler que retorna: a execucao e retomada em regs.eip via iret. Para
+//    escalar a falha, o proprio handler pode chamar kernel_panic().
+//  - Abortos (#DF = 8, #MC = 18) nao sao retomaveis: o handler roda (util para
+//    diagnostico), mas ao retornar o kernel entra em panic de qualquer forma.
 void isr_handler(registers_t regs);
 
-// Handler generico das IRQs 0-15 (vetores 32-47), chamado por irq_common_stub.
-// Por enquanto apenas confirma a IRQ no PIC (EOI); o despacho para handlers
-// registrados e a tarefa 9.
+// Despachante das IRQs 0-15 (vetores 32-47), chamado por irq_common_stub.
+// Ordem das operacoes:
+//  1. IRQ espuria (7/15 sem bit no ISR): descarta sem handler e sem EOI.
+//  2. EOI no PIC, ANTES do handler. As interrupcoes seguem mascaradas na CPU,
+//     entao nao ha reentrada, e o PIC nao fica travado se o handler nunca
+//     retornar por aqui (ex.: troca de contexto no timer).
+//  3. Invoca o handler registrado. Sem handler, a IRQ so e confirmada e ignorada.
 void irq_handler(registers_t regs);
 
 // Registra as 16 IRQs (vetores 32-47) na IDT. Chamar apos idt_install() e

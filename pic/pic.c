@@ -15,9 +15,16 @@
 #define PIC_SLAVE_ID     0x02
 #define PIC_MASK_ALL     0xFF
 #define PIC_EOI          0x20
+#define PIC_OCW3_READ_ISR 0x0B  // próxima leitura da porta de comando devolve o ISR
 
 static inline void outb(uint16_t port, uint8_t value) {
     asm volatile("outb %0, %1" : : "a"(value), "Nd"(port) : "memory");
+}
+
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port) : "memory");
+    return ret;
 }
 
 static inline void io_wait(void) {
@@ -70,4 +77,38 @@ void pic_send_eoi(uint8_t irq) {
         outb(PIC_SLAVE_COMMAND, PIC_EOI);
 
     outb(PIC_MASTER_COMMAND, PIC_EOI);
+}
+
+// Lê o In-Service Register (ISR) do PIC cuja porta de comando é informada.
+// Bit n em 1 = a IRQ n desse chip está em atendimento (recebeu INTA, ainda sem EOI).
+static uint8_t pic_read_isr(uint16_t command_port) {
+    outb(command_port, PIC_OCW3_READ_ISR);
+    return inb(command_port);
+}
+
+int pic_irq_espuria(uint8_t irq) {
+    /*
+     * Uma IRQ espúria acontece quando a linha cai antes do INTA: o PIC entrega
+     * o vetor da sua última linha (7 no mestre, 15 no escravo), mas o bit
+     * correspondente no ISR NÃO fica ligado. Só essas duas linhas podem ser
+     * espúrias; para as demais não há o que verificar.
+     */
+    if (irq == 7)
+        // Espúria do mestre: nenhum EOI, pois o mestre não marcou nada em serviço.
+        return !(pic_read_isr(PIC_MASTER_COMMAND) & (1u << 7));
+
+    if (irq == 15) {
+        if (pic_read_isr(PIC_SLAVE_COMMAND) & (1u << 7))
+            return 0;
+
+        /*
+         * Espúria do escravo: ele não recebe EOI, mas o mestre já tratou a
+         * cascata (IRQ2) como real e está com o bit 2 ligado no ISR dele.
+         * Sem este EOI, o mestre ficaria bloqueado para IRQs de menor prioridade.
+         */
+        outb(PIC_MASTER_COMMAND, PIC_EOI);
+        return 1;
+    }
+
+    return 0;
 }

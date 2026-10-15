@@ -46,7 +46,54 @@ static const char *excecoes[32] = {
     "Reservada"
 };
 
-// Handler generico: todos os 32 stubs de excecao (interrupts.s) caem aqui.
+// Excecoes do tipo "abort" (Intel SDM vol. 3, cap. 6.5): o estado da CPU nao
+// permite retomar a execucao, entao um handler nunca pode "consertar" e voltar.
+#define EXC_DOUBLE_FAULT  8
+#define EXC_MACHINE_CHECK 18
+
+// Tabela de despacho, indexada pelo numero do vetor (regs.int_no):
+//   [0..31]  excecoes da CPU      -> isr_register_handler()
+//   [32..47] IRQs 0-15 do PIC     -> irq_register_handler()
+// NULL = sem handler. Fica em .bss, entao comeca toda zerada. Cada entrada e
+// um unico ponteiro de 32 bits alinhado, gravado com uma unica instrucao: nao
+// existe leitura "pela metade" caso uma interrupcao ocorra durante o registro.
+static interrupt_handler_t handlers[INT_NUM_VETORES];
+
+// `vetor` ja deve ter sido validado pelos chamadores (< INT_NUM_VETORES).
+static int vetor_registrar(uint32_t vetor, interrupt_handler_t handler) {
+    if (handler == NULL || handlers[vetor] != NULL)
+        return -1;
+    handlers[vetor] = handler;
+    return 0;
+}
+
+int isr_register_handler(uint8_t vetor, interrupt_handler_t handler) {
+    if (vetor >= ISR_NUM_EXCECOES)
+        return -1;
+    return vetor_registrar(vetor, handler);
+}
+
+int isr_unregister_handler(uint8_t vetor) {
+    if (vetor >= ISR_NUM_EXCECOES)
+        return -1;
+    handlers[vetor] = NULL;
+    return 0;
+}
+
+int irq_register_handler(uint8_t irq, interrupt_handler_t handler) {
+    if (irq >= IRQ_NUM_LINHAS)
+        return -1;
+    return vetor_registrar(IRQ_VETOR_BASE + irq, handler);
+}
+
+int irq_unregister_handler(uint8_t irq) {
+    if (irq >= IRQ_NUM_LINHAS)
+        return -1;
+    handlers[IRQ_VETOR_BASE + irq] = NULL;
+    return 0;
+}
+
+// Despachante: todos os 32 stubs de excecao (interrupts.s) caem aqui.
 //
 // Mantem o argumento por valor, conforme o contrato do stub Assembly existente.
 // Seu endereco aponta para o quadro salvo, nao para registradores lidos depois.
@@ -54,8 +101,23 @@ void isr_handler(registers_t regs) {
     // O stub atual nao limpa DF; garanta a direcao esperada pelas rotinas C.
     // O valor original de EFLAGS permanece salvo em regs.eflags.
     asm volatile("cld" ::: "cc");
-    const char *nome = (regs.int_no < 32) ? excecoes[regs.int_no] : "Excecao desconhecida";
-    kernel_panic(nome, &regs);
+
+    uint32_t vetor = regs.int_no;
+
+    // O stub so empilha 0-31, mas int_no vem da pilha: nao indexe a tabela
+    // sem validar. Um valor fora da faixa indica quadro corrompido.
+    if (vetor >= ISR_NUM_EXCECOES)
+        kernel_panic("Excecao desconhecida", &regs);
+
+    interrupt_handler_t handler = handlers[vetor];
+    if (handler == NULL)
+        kernel_panic(excecoes[vetor], &regs);
+
+    handler(&regs);
+
+    // Aborts nao sao retomaveis: se o handler voltou, ainda assim e fatal.
+    if (vetor == EXC_DOUBLE_FAULT || vetor == EXC_MACHINE_CHECK)
+        kernel_panic(excecoes[vetor], &regs);
 }
 
 // Registra as 32 excecoes da CPU na IDT.
@@ -74,15 +136,29 @@ void isr_install(void) {
     }
 }
 
-// Handler generico das IRQs de hardware. Ainda sem tabela de handlers
-// (tarefa 9): apenas reconhece a interrupcao no PIC para nao travar a linha.
+// Despachante das IRQs de hardware: todos os 16 stubs irqN (interrupts.s) caem aqui.
 void irq_handler(registers_t regs) {
     asm volatile("cld" ::: "cc");
-    uint32_t irq = regs.int_no - 32;
 
-    // IRQ 7 e 15 podem ser espurias; sem tratamento ate a tarefa 9, so o EOI comum.
-    if (irq < 16)
-        pic_send_eoi((uint8_t)irq);
+    // Aritmetica sem sinal: int_no < IRQ_VETOR_BASE "da a volta" e tambem
+    // falha no teste abaixo. Fora da faixa nao ha linha de PIC para confirmar.
+    uint32_t irq = regs.int_no - IRQ_VETOR_BASE;
+    if (irq >= IRQ_NUM_LINHAS)
+        return;
+
+    // IRQ 7 e 15 podem ser espurias (pic.h). Nesse caso nao ha handler nem
+    // EOI a enviar por aqui; pic_irq_espuria() cuida do que o hardware exigir.
+    if (pic_irq_espuria((uint8_t)irq))
+        return;
+
+    // EOI antes do handler: as interrupcoes continuam mascaradas na CPU ate o
+    // iret, entao a mesma linha nao reentra, e o PIC nao fica travado se o
+    // handler nao voltar por aqui (ex.: troca de contexto no timer).
+    pic_send_eoi((uint8_t)irq);
+
+    interrupt_handler_t handler = handlers[regs.int_no];
+    if (handler != NULL)
+        handler(&regs);
 }
 
 // Registra as 16 IRQs na IDT, nos vetores 32-47 (mesmo remapeamento do PIC).
