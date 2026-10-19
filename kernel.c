@@ -10,6 +10,7 @@
 #include "version.h"
 #include "include/panic.h"
 #include <stdint.h>
+#include <stddef.h>
 
 typedef struct {
   uint32_t flags;
@@ -39,8 +40,28 @@ typedef struct {
   uint32_t framebuffer_height;
   uint8_t framebuffer_bpp;
   uint8_t framebuffer_type;
+  // O GRUB usado pelo VGOS alinha a uniao de cores em 4 bytes (offset 112).
+  // Como esta estrutura e packed, o preenchimento precisa ser explicito.
+  uint8_t framebuffer_padding[2];
   uint8_t color_info[6];
 } __attribute__((packed)) multiboot_info_t;
+
+_Static_assert(offsetof(multiboot_info_t, framebuffer_addr) == 88,
+               "Multiboot: offset de framebuffer_addr incorreto");
+_Static_assert(offsetof(multiboot_info_t, framebuffer_pitch) == 96,
+               "Multiboot: offset de framebuffer_pitch incorreto");
+_Static_assert(offsetof(multiboot_info_t, framebuffer_width) == 100,
+               "Multiboot: offset de framebuffer_width incorreto");
+_Static_assert(offsetof(multiboot_info_t, framebuffer_height) == 104,
+               "Multiboot: offset de framebuffer_height incorreto");
+_Static_assert(offsetof(multiboot_info_t, framebuffer_bpp) == 108,
+               "Multiboot: offset de framebuffer_bpp incorreto");
+_Static_assert(offsetof(multiboot_info_t, framebuffer_type) == 109,
+               "Multiboot: offset de framebuffer_type incorreto");
+_Static_assert(offsetof(multiboot_info_t, framebuffer_padding) == 110,
+               "Multiboot: offset de preenchimento incorreto");
+_Static_assert(offsetof(multiboot_info_t, color_info) == 112,
+               "Multiboot GRUB: offset de color_info incorreto");
 
 #define LINHA_MAX 1024
 
@@ -89,23 +110,30 @@ void kernel_main(multiboot_info_t *mbd) {
   // Mantém interrupções mascaráveis desabilitadas durante a inicialização
   asm volatile("cli" ::: "memory");
 
-  // 1. OBTÉM DADOS DO FRAMEBUFFER E CONFIGURA O PANIC EM PRIMEIRO LUGAR
+  // Confira a presenca antes de ler os campos de video do Multiboot.
+  // Ate concluir a validacao, o panic permanece sem video e apenas para.
+  if (!mbd || !(mbd->flags & (1U << 12)))
+    kernel_panic("Boot sem framebuffer disponivel.", 0);
+
+  // Valide o endereco completo antes da conversao para ponteiro de 32 bits.
+  if (!mbd->framebuffer_addr || mbd->framebuffer_addr > UINT32_MAX ||
+      mbd->framebuffer_bpp != 32 || mbd->framebuffer_type != 1)
+    kernel_panic("Formato de framebuffer nao suportado.", 0);
+
+  // Multiboot RGB: posicao e tamanho de R, G e B, nessa ordem.
+  // O renderizador atual escreve pixels no formato 0x00RRGGBB.
+  if (mbd->color_info[0] != 16 || mbd->color_info[1] != 8 ||
+      mbd->color_info[2] != 8 || mbd->color_info[3] != 8 ||
+      mbd->color_info[4] != 0 || mbd->color_info[5] != 8)
+    kernel_panic("Layout RGB de framebuffer nao suportado.", 0);
+
   uint32_t *fb = (uint32_t *)(uintptr_t)mbd->framebuffer_addr;
   uint32_t pitch = mbd->framebuffer_pitch;
   uint32_t width = mbd->framebuffer_width;
   uint32_t height = mbd->framebuffer_height;
 
-  panic_configurar_video(fb, pitch, width, height);
-
-  // 2. VALIDAÇÕES (se falharem, o kernel_panic já tem o vídeo pronto para desenhar!)
-  if (!(mbd->flags & (1 << 12)))
-    kernel_panic("Boot sem framebuffer disponivel.", 0);
-
-  if ((mbd->framebuffer_addr >> 32) || mbd->framebuffer_bpp != 32 ||
-      mbd->framebuffer_type != 1)
-    kernel_panic("Formato de framebuffer nao suportado.", 0);
-
-  if (width == 0 || height == 0 || pitch == 0)
+  // O framebuffer so fica habilitado se toda a geometria for valida.
+  if (!panic_configurar_video(fb, pitch, width, height))
     kernel_panic("Geometria de framebuffer invalida.", 0);
 
   // 3. INICIALIZA A GDT, IDT E PIC
