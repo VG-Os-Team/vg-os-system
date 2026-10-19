@@ -26,8 +26,10 @@ static void panic_parar(void) {
 
 int panic_configurar_video(uint32_t *fb, uint32_t pitch,
                           uint32_t largura, uint32_t altura) {
+  // Uma falha de validacao nunca conserva o framebuffer anterior.
   video.fb = NULL;
-  if (!fb || largura < 48 || altura < 56 || pitch % 4 != 0 ||
+  if (!fb || (uintptr_t)fb % 4 != 0 || largura < 48 || altura < 56 ||
+      pitch == 0 || pitch % 4 != 0 ||
       pitch / 4 < largura || altura > UINT32_MAX / pitch)
     return 0;
   uint32_t tamanho = pitch * altura;
@@ -63,10 +65,29 @@ static void panic_texto(const char *texto, uint32_t cor, unsigned max_linhas) {
   linha_y += LINHA_ALTURA;
 }
 
+// Separadores usam os espacos ja existentes, sem consumir linhas de texto.
+static void panic_separador(uint32_t y) {
+  if (y >= video.altura - MARGEM)
+    return;
+  uint32_t fim_x = video.largura - MARGEM;
+  if (fim_x > MARGEM + 32U * CHAR_LARGURA)
+    fim_x = MARGEM + 32U * CHAR_LARGURA;
+  for (uint32_t x = MARGEM; x < fim_x; x++)
+    video.fb[y * (video.pitch / 4) + x] = PANIC_DESTAQUE;
+}
+
 static char *panic_valor(char *destino, const char *nome, uint32_t valor) {
   const char *hex = "0123456789ABCDEF";
-  while (*nome)
+  unsigned letras = 0;
+  while (*nome) {
     *destino++ = *nome++;
+    letras++;
+  }
+  // Alinhe nomes e valores quando as duas colunas completas couberem.
+  // Em telas estreitas, conserve o formato compacto original.
+  if (video.largura - 2U * MARGEM >= 32U * CHAR_LARGURA)
+    while (letras++ < 6)
+      *destino++ = ' ';
   *destino++ = '=';
   for (int shift = 28; shift >= 0; shift -= 4)
     *destino++ = hex[(valor >> shift) & 15];
@@ -100,6 +121,7 @@ void kernel_panic(const char *message, registers_t *regs) {
 
   linha_y = MARGEM;
   panic_texto("VGOS - KERNEL PANIC", PANIC_DESTAQUE, 1);
+  panic_separador(linha_y - 3U);
   panic_texto(message ? message : "Erro fatal sem mensagem.", PANIC_TEXTO, 3);
   linha_y += 8;
 
@@ -136,6 +158,7 @@ void kernel_panic(const char *message, registers_t *regs) {
     panic_texto("Registradores indisponiveis.", PANIC_TEXTO, 1);
   }
 
+  panic_separador(linha_y + 3U);
   linha_y += 8;
   panic_texto("Sistema parado. Reinicie a maquina virtual.", PANIC_DESTAQUE, 2);
   panic_parar();
