@@ -81,15 +81,82 @@ multiboot_mem_status_t multiboot_mem_parse(
     return MULTIBOOT_MEM_OK;
 }
 
+static const multiboot_info_t *saved_mbd = 0;
+
 multiboot_mem_status_t multiboot_mem_init(
     const multiboot_info_t *mbd)
 {
     multiboot_mem_status_t status =
         multiboot_mem_parse(mbd, &mem_info);
 
-    mem_info_initialized = (status == MULTIBOOT_MEM_OK);
+    if (status == MULTIBOOT_MEM_OK) {
+        saved_mbd = mbd;
+        mem_info_initialized = 1;
+    } else {
+        saved_mbd = 0;
+        mem_info_initialized = 0;
+    }
 
     return status;
+}
+
+multiboot_mem_status_t multiboot_mem_iterar(
+    const multiboot_info_t *mbd,
+    multiboot_mmap_iter_cb callback,
+    void *ctx)
+{
+    if (mbd == 0 || callback == 0) {
+        return MULTIBOOT_MEM_ERR_NULL_POINTER;
+    }
+
+    if ((mbd->flags & MULTIBOOT_INFO_MMAP) == 0) {
+        return MULTIBOOT_MEM_ERR_NO_MMAP;
+    }
+
+    if (mbd->mmap_length == 0 || mbd->mmap_addr == 0) {
+        return MULTIBOOT_MEM_ERR_INVALID_MAP;
+    }
+
+    const uint8_t *map = (const uint8_t *)(uintptr_t)mbd->mmap_addr;
+    uint32_t offset = 0;
+
+    while (offset < mbd->mmap_length) {
+        uint32_t remaining = mbd->mmap_length - offset;
+
+        if (remaining < sizeof(uint32_t)) {
+            return MULTIBOOT_MEM_ERR_MALFORMED;
+        }
+
+        const multiboot_mmap_entry_t *entry =
+            (const multiboot_mmap_entry_t *)(map + offset);
+
+        uint32_t entry_size = entry->size;
+
+        if (entry_size < MULTIBOOT_MMAP_ENTRY_MIN_SIZE) {
+            return MULTIBOOT_MEM_ERR_MALFORMED;
+        }
+
+        if (entry_size > remaining - sizeof(uint32_t)) {
+            return MULTIBOOT_MEM_ERR_MALFORMED;
+        }
+
+        callback(entry->addr, entry->len, entry->type, ctx);
+
+        offset += entry_size + sizeof(uint32_t);
+    }
+
+    return MULTIBOOT_MEM_OK;
+}
+
+multiboot_mem_status_t multiboot_mem_iterar_regioes(
+    multiboot_mmap_iter_cb callback,
+    void *ctx)
+{
+    if (!mem_info_initialized || saved_mbd == 0) {
+        return MULTIBOOT_MEM_ERR_NO_MMAP;
+    }
+
+    return multiboot_mem_iterar(saved_mbd, callback, ctx);
 }
 
 const multiboot_mem_info_t *multiboot_mem_get_info(void)

@@ -3,12 +3,92 @@
 #include "render.h"
 #include "version.h"
 #include "gdt.h"
+#include "include/pmm.h"
 
 // Escreve exatamente 8 digitos hexadecimais (sem depender de printf/libc).
 static void escrever_hex(char *destino, uint32_t valor) {
   const char *digitos = "0123456789ABCDEF";
   for (int i = 0; i < 8; i++)
     destino[i] = digitos[(valor >> (28 - i * 4)) & 0xF];
+}
+
+static int escrever_uint(char *destino, uint32_t valor) {
+  char temp[12];
+  int i = 0;
+  if (valor == 0) {
+    destino[0] = '0';
+    destino[1] = '\0';
+    return 1;
+  }
+  while (valor > 0) {
+    temp[i++] = '0' + (valor % 10);
+    valor /= 10;
+  }
+  for (int j = 0; j < i; j++) {
+    destino[j] = temp[i - 1 - j];
+  }
+  destino[i] = '\0';
+  return i;
+}
+
+static void copiar_str(char *dest, const char *src, int *pos) {
+  while (*src) {
+    dest[(*pos)++] = *src++;
+  }
+}
+
+static void mostrar_pmm(uint32_t *fb, uint32_t pitch, int *cursor_y) {
+  pmm_stats_t stats;
+  pmm_get_stats(&stats);
+
+  *cursor_y += 24;
+  desenhar_string("--- PMM: Alocador de Memoria Fisica (4KB Bitmap) ---", 50, *cursor_y,
+                  0x00FFD166, fb, pitch);
+
+  char buf[96];
+  int p = 0;
+  copiar_str(buf, "Total: ", &p);
+  p += escrever_uint(buf + p, stats.total_memory_kb / 1024);
+  copiar_str(buf, " MB (", &p);
+  p += escrever_uint(buf + p, stats.total_blocks);
+  copiar_str(buf, " blocos de 4KB)", &p);
+  buf[p] = '\0';
+  *cursor_y += 24;
+  desenhar_string(buf, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
+
+  p = 0;
+  copiar_str(buf, "Usados: ", &p);
+  p += escrever_uint(buf + p, stats.used_blocks);
+  copiar_str(buf, " | Livres: ", &p);
+  p += escrever_uint(buf + p, stats.free_blocks);
+  copiar_str(buf, " (", &p);
+  p += escrever_uint(buf + p, stats.free_memory_kb / 1024);
+  copiar_str(buf, " MB livres)", &p);
+  buf[p] = '\0';
+  *cursor_y += 24;
+  desenhar_string(buf, 50, *cursor_y, 0x00AAAAAA, fb, pitch);
+
+  // Teste dinamico de alocacao e liberacao de bloco fisico
+  void *bloco = pmm_alloc_block();
+  p = 0;
+  if (bloco) {
+    copiar_str(buf, "Teste alocacao: bloco alocado em 0x", &p);
+    escrever_hex(buf + p, (uint32_t)(uintptr_t)bloco);
+    p += 8;
+    copiar_str(buf, " [OK]", &p);
+    buf[p] = '\0';
+    *cursor_y += 24;
+    desenhar_string(buf, 50, *cursor_y, 0x0000FF00, fb, pitch);
+
+    pmm_free_block(bloco);
+    *cursor_y += 24;
+    desenhar_string("Teste liberacao: pmm_free_block executado com sucesso [OK]", 50,
+                    *cursor_y, 0x0000FF00, fb, pitch);
+  } else {
+    *cursor_y += 24;
+    desenhar_string("Teste alocacao: FALHA - memoria fisica esgotada", 50,
+                    *cursor_y, 0x00FF0000, fb, pitch);
+  }
 }
 
 static void mostrar_gdt(uint32_t *fb, uint32_t pitch, int *cursor_y) {
@@ -68,6 +148,9 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
     desenhar_string("gdt     - verifica a GDT e o TSS", 50, *cursor_y,
                     0x00AAAAAA, fb, pitch);
     *cursor_y += 24;
+    desenhar_string("pmm     - diagnostico do alocador de memoria fisica (PMM)", 50, *cursor_y,
+                    0x00AAAAAA, fb, pitch);
+    *cursor_y += 24;
     desenhar_string("panic   - teste fatal; exige reinicio", 50, *cursor_y,
                     0x00AAAAAA, fb, pitch);
     *cursor_y += 24;
@@ -93,6 +176,11 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
 
   if (comando_igual(linha, len, "gdt")) {
     mostrar_gdt(fb, pitch, cursor_y);
+    return COMANDO_OK;
+  }
+
+  if (comando_igual(linha, len, "pmm") || comando_igual(linha, len, "mem")) {
+    mostrar_pmm(fb, pitch, cursor_y);
     return COMANDO_OK;
   }
 

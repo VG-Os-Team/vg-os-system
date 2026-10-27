@@ -5,7 +5,7 @@
 // Exemplo: 0.3.9 -> 0.4.0
 
 #define OS_NAME "VG OS"
-#define OS_VERSION "0.4.6"
+#define OS_VERSION "0.4.7"
 #define OS_STAGE "beta"
 
 #define OS_BANNER OS_NAME " Versao " OS_VERSION "-" OS_STAGE

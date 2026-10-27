@@ -13,6 +13,7 @@
 #include <stddef.h>
 
 #include "include/multiboot.h"
+#include "include/pmm.h"
 
 #define LINHA_MAX 1024
 
@@ -91,6 +92,9 @@ void kernel_main(multiboot_info_t *mbd) {
   multiboot_mem_status_t mem_status = multiboot_mem_init(mbd);
   if (mem_status != MULTIBOOT_MEM_OK)
     kernel_panic("Falha ao ler o mapa de memoria Multiboot.", 0);
+
+  // Inicializa o alocador de paginas fisicas (PMM) de 4KB baseado em bitmap.
+  pmm_init(mbd);
 
   // 3. INICIALIZA A GDT, IDT E PIC
   gdt_instalar();

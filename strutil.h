@@ -2,7 +2,7 @@
 #define STRUTIL_H
 
 int minha_strlen(const char *s);
-// no futuro: int minha_strcmp(const char *a, const char *b);
-// no futuro: void *minha_memset(void *dst, int val, int n);
+void *minha_memset(void *dst, int val, unsigned int n);
+void *memset(void *dst, int val, unsigned int n);
 
 #endif

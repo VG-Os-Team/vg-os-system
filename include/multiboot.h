@@ -124,4 +124,25 @@ const char *multiboot_mem_status_str(
     multiboot_mem_status_t status
 );
 
+/* Tipo de funcao callback para iteracao sobre entradas do mapa de memoria */
+typedef void (*multiboot_mmap_iter_cb)(
+    uint64_t addr,
+    uint64_t len,
+    uint32_t type,
+    void *ctx
+);
+
+/* Itera sobre as entradas do mapa sem depender do estado global */
+multiboot_mem_status_t multiboot_mem_iterar(
+    const multiboot_info_t *mbd,
+    multiboot_mmap_iter_cb callback,
+    void *ctx
+);
+
+/* Itera sobre as entradas usando a estrutura inicializada em multiboot_mem_init */
+multiboot_mem_status_t multiboot_mem_iterar_regioes(
+    multiboot_mmap_iter_cb callback,
+    void *ctx
+);
+
 #endif
