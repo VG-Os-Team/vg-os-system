@@ -33,7 +33,9 @@ C_SRCS = \
 	keyboard/keyboard.c \
 	pic/pic.c \
 	Render/render.c \
-	src/arch/x86/panic.c
+	src/arch/x86/panic.c \
+	src/mm/multiboot_mem.c
+
 
 # Fontes Assembly com sintaxe GNU Assembler (GAS)
 GAS_SRCS = \

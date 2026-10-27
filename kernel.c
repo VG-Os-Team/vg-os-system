@@ -12,56 +12,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-typedef struct {
-  uint32_t flags;
-  uint32_t mem_lower;
-  uint32_t mem_upper;
-  uint32_t boot_device;
-  uint32_t cmdline;
-  uint32_t mods_count;
-  uint32_t mods_addr;
-  uint32_t syms[4];
-  uint32_t mmap_length;
-  uint32_t mmap_addr;
-  uint32_t drives_length;
-  uint32_t drives_addr;
-  uint32_t config_table;
-  uint32_t boot_loader_name;
-  uint32_t apm_table;
-  uint32_t vbe_control_info;
-  uint32_t vbe_mode_info;
-  uint16_t vbe_mode;
-  uint16_t vbe_interface_seg;
-  uint16_t vbe_interface_off;
-  uint16_t vbe_interface_len;
-  uint64_t framebuffer_addr;
-  uint32_t framebuffer_pitch;
-  uint32_t framebuffer_width;
-  uint32_t framebuffer_height;
-  uint8_t framebuffer_bpp;
-  uint8_t framebuffer_type;
-  // O GRUB usado pelo VGOS alinha a uniao de cores em 4 bytes (offset 112).
-  // Como esta estrutura e packed, o preenchimento precisa ser explicito.
-  uint8_t framebuffer_padding[2];
-  uint8_t color_info[6];
-} __attribute__((packed)) multiboot_info_t;
-
-_Static_assert(offsetof(multiboot_info_t, framebuffer_addr) == 88,
-               "Multiboot: offset de framebuffer_addr incorreto");
-_Static_assert(offsetof(multiboot_info_t, framebuffer_pitch) == 96,
-               "Multiboot: offset de framebuffer_pitch incorreto");
-_Static_assert(offsetof(multiboot_info_t, framebuffer_width) == 100,
-               "Multiboot: offset de framebuffer_width incorreto");
-_Static_assert(offsetof(multiboot_info_t, framebuffer_height) == 104,
-               "Multiboot: offset de framebuffer_height incorreto");
-_Static_assert(offsetof(multiboot_info_t, framebuffer_bpp) == 108,
-               "Multiboot: offset de framebuffer_bpp incorreto");
-_Static_assert(offsetof(multiboot_info_t, framebuffer_type) == 109,
-               "Multiboot: offset de framebuffer_type incorreto");
-_Static_assert(offsetof(multiboot_info_t, framebuffer_padding) == 110,
-               "Multiboot: offset de preenchimento incorreto");
-_Static_assert(offsetof(multiboot_info_t, color_info) == 112,
-               "Multiboot GRUB: offset de color_info incorreto");
+#include "include/multiboot.h"
 
 #define LINHA_MAX 1024
 
@@ -135,6 +86,11 @@ void kernel_main(multiboot_info_t *mbd) {
   // O framebuffer so fica habilitado se toda a geometria for valida.
   if (!panic_configurar_video(fb, pitch, width, height))
     kernel_panic("Geometria de framebuffer invalida.", 0);
+
+  // Inicializa o parser do mapa de memória Multiboot.
+  multiboot_mem_status_t mem_status = multiboot_mem_init(mbd);
+  if (mem_status != MULTIBOOT_MEM_OK)
+    kernel_panic("Falha ao ler o mapa de memoria Multiboot.", 0);
 
   // 3. INICIALIZA A GDT, IDT E PIC
   gdt_instalar();
