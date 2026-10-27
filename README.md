@@ -20,8 +20,13 @@ Um sistema operacional x86 de 32 bits desenvolvido do zero para fins acadêmicos
   - Suporte a scancodes estendidos (`0xE0`), como setas direcionais, Delete, Home, End e Ctrl Direito.
   - Suporte a atalhos de teclado: `Ctrl+L` (limpar tela), `Ctrl+C` (copiar linha) e `Ctrl+V` (colar).
   - Tratamento de repetição de teclas (*key repeat*) e Caps Lock.
+* **Gerenciador de Memória Física (PMM - 4KB Bitmap):**
+  - Alocador de páginas físicas de 4KB baseado em array de bitmap (`pmm_alloc_block`, `pmm_free_block`).
+  - Rotinas para marcar páginas como livres/ocupadas (`pmm_set_block`, `pmm_unset_block`, `pmm_test_block`).
+  - Inicialização automática via mapa de memória física obtido do Multiboot (`multiboot_mmap`).
+  - Proteção de regiões críticas: baixa memória (primeiro 1MB), código/dados/BSS do kernel, framebuffer VESA e estruturas do Multiboot.
 * **Terminal Interativo Integrado:**
-  - Comandos embutidos: `help`, `version`, `clear`, `exit`, `gdt` (diagnostico de GDT/TSS), `panic` (teste fatal).
+  - Comandos embutidos: `help`, `version`, `clear`, `exit`, `gdt` (diagnostico de GDT/TSS), `pmm` (diagnostico do alocador de memoria fisica), `panic` (teste fatal).
   - Tratamento de quebra automática de linha (*line wrap*) e Backspace multilinha.
 * **Arquitetura Modular:**
   - Centralização de versão do sistema (`version.h`).
