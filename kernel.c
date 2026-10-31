@@ -14,6 +14,7 @@
 
 #include "include/multiboot.h"
 #include "include/pmm.h"
+#include "include/paging.h"
 
 #define LINHA_MAX 1024
 
@@ -102,6 +103,10 @@ void kernel_main(multiboot_info_t *mbd) {
   isr_install();
   irq_install();
   pic_init();
+  // Ativa a paginacao x86 (identity map do kernel e do framebuffer).
+  // Fica depois de idt/isr para que um Page Fault vire kernel panic.
+  if (paging_init((uint32_t)mbd->framebuffer_addr, pitch * height) != PAGING_OK)
+    kernel_panic("Falha ao ativar a paginacao.", 0);
   // Fundo preto
   for (uint32_t y = 0; y < height; y++) {
     for (uint32_t x = 0; x < width; x++)
