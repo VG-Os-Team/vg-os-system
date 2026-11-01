@@ -35,7 +35,8 @@ C_SRCS = \
 	Render/render.c \
 	src/arch/x86/panic.c \
 	src/mm/multiboot_mem.c \
-	src/mm/pmm.c
+	src/mm/pmm.c \
+	src/mm/paging.c
 
 
 # Fontes Assembly com sintaxe GNU Assembler (GAS)
