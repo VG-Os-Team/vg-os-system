@@ -12,8 +12,11 @@
  * A regiao usada pelo heap precisa estar mapeada (identity map).
  */
 
-/* Tamanho inicial do heap do kernel (pedido ao PMM). */
-#define HEAP_INITIAL_SIZE (1024U * 1024U)
+/* Tamanho inicial do heap do kernel (pedido ao PMM).
+ * Dimensionado em 16 MB para comportar o backbuffer de video na RAM
+ * (3 MB em 1024x768x32bpp e ate ~8 MB em 1920x1080x32bpp) com folga
+ * para as demais alocacoes dinamicas do kernel. */
+#define HEAP_INITIAL_SIZE (16U * 1024U * 1024U)
 
 /* Inicializa o heap sobre a regiao [start, start + size). */
 void heap_init(void *start, size_t size);

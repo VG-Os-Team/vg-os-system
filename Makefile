@@ -37,7 +37,8 @@ C_SRCS = \
 	src/mm/multiboot_mem.c \
 	src/mm/pmm.c \
 	src/mm/paging.c \
-	src/mm/heap.c
+	src/mm/heap.c \
+	src/drivers/video.c
 
 
 # Fontes Assembly com sintaxe GNU Assembler (GAS)

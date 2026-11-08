@@ -16,11 +16,46 @@
 #include "include/pmm.h"
 #include "include/paging.h"
 #include "include/heap.h"
+#include "include/video.h"
 
 #define LINHA_MAX 1024
 
 static inline void outw(uint16_t port, uint16_t val) {
   asm volatile("outw %0, %1" : : "a"(val), "Nd"(port));
+}
+
+// Copia provisoria do backbuffer (RAM) para a VRAM fisica ate a criacao
+// de render_flush() na Tarefa 19, mantendo o terminal visivel e sem flicker.
+static void sincronizar_vram_provisorio(void) {
+  const uint32_t *src = video_get_backbuffer();
+  uint32_t *dst = video_get_frontbuffer();
+  if (!src || !dst || src == dst)
+    return;
+
+  uint32_t width = video_get_width();
+  uint32_t height = video_get_height();
+  uint32_t src_pitch = video_get_backbuffer_pitch();
+  uint32_t dst_pitch = video_get_vram_pitch();
+
+  if (src_pitch == dst_pitch && src_pitch == width * 4U) {
+    uint32_t total_pixels = width * height;
+    asm volatile("cld; rep movsl"
+                 : "+S"(src), "+D"(dst), "+c"(total_pixels)
+                 :
+                 : "memory", "cc");
+    return;
+  }
+
+  for (uint32_t y = 0; y < height; y++) {
+    const uint32_t *linha_src =
+        (const uint32_t *)((const uint8_t *)src + y * src_pitch);
+    uint32_t *linha_dst = (uint32_t *)((uint8_t *)dst + y * dst_pitch);
+    uint32_t cols = width;
+    asm volatile("cld; rep movsl"
+                 : "+S"(linha_src), "+D"(linha_dst), "+c"(cols)
+                 :
+                 : "memory", "cc");
+  }
 }
 
 static void limpar_terminal(uint32_t *fb, uint32_t pitch, uint32_t width,
@@ -81,13 +116,14 @@ void kernel_main(multiboot_info_t *mbd) {
       mbd->color_info[4] != 0 || mbd->color_info[5] != 8)
     kernel_panic("Layout RGB de framebuffer nao suportado.", 0);
 
-  uint32_t *fb = (uint32_t *)(uintptr_t)mbd->framebuffer_addr;
-  uint32_t pitch = mbd->framebuffer_pitch;
+  uint32_t *vram = (uint32_t *)(uintptr_t)mbd->framebuffer_addr;
+  uint32_t vram_pitch = mbd->framebuffer_pitch;
   uint32_t width = mbd->framebuffer_width;
   uint32_t height = mbd->framebuffer_height;
 
-  // O framebuffer so fica habilitado se toda a geometria for valida.
-  if (!panic_configurar_video(fb, pitch, width, height))
+  // O kernel_panic permanece apontando direto para a VRAM fisica para que
+  // erros fatais aparecam na hora sem depender de sincronizacao do backbuffer.
+  if (!panic_configurar_video(vram, vram_pitch, width, height))
     kernel_panic("Geometria de framebuffer invalida.", 0);
 
   // Inicializa o parser do mapa de memória Multiboot.
@@ -106,16 +142,23 @@ void kernel_main(multiboot_info_t *mbd) {
   pic_init();
   // Ativa a paginacao x86 (identity map do kernel e do framebuffer).
   // Fica depois de idt/isr para que um Page Fault vire kernel panic.
-  if (paging_init((uint32_t)mbd->framebuffer_addr, pitch * height) != PAGING_OK)
+  if (paging_init((uint32_t)mbd->framebuffer_addr, vram_pitch * height) != PAGING_OK)
     kernel_panic("Falha ao ativar a paginacao.", 0);
   // Heap dinamico do kernel (kmalloc/kfree), sobre paginas pedidas ao PMM.
   if (heap_init_from_pmm(HEAP_INITIAL_SIZE) != 0)
     kernel_panic("Falha ao inicializar o heap do kernel.", 0);
-  // Fundo preto
-  for (uint32_t y = 0; y < height; y++) {
-    for (uint32_t x = 0; x < width; x++)
-      fb[(y * pitch / 4) + x] = 0x00000000;
-  }
+  // Registra a VRAM atual e aloca o backbuffer na RAM via kmalloc (Double Buffering).
+  if (video_set_vram(vram, vram_pitch, width, height, mbd->framebuffer_bpp) != VIDEO_OK)
+    kernel_panic("Falha ao registrar parametros de video.", 0);
+  if (video_backbuffer_init() != VIDEO_OK)
+    kernel_panic("Falha ao alocar o backbuffer na RAM.", 0);
+
+  // Direciona todas as operacoes de desenho para o backbuffer secundario na RAM.
+  uint32_t *fb = video_get_draw_buffer();
+  uint32_t pitch = video_get_draw_pitch();
+
+  // Fundo preto no backbuffer
+  video_backbuffer_clear(0x00000000);
 
   // Letras VGOS em blocos grandes
   static const uint16_t letra_V[] = {
@@ -197,6 +240,9 @@ void kernel_main(multiboot_info_t *mbd) {
   int cursor_x = cursor_base_x;
   int cursor_y = text_y;
 
+  // Apresenta o quadro inicial completo na VRAM de uma unica vez (sem flicker)
+  sincronizar_vram_provisorio();
+
   // Loop do Teclado
   // O Loop do Terminal
   while (1) {
@@ -206,10 +252,13 @@ void kernel_main(multiboot_info_t *mbd) {
       continue;
     }
 
+    int atualizar_tela = 0;
+
     switch (tecla) {
     case TECLA_CTRL_L:
       limpar_terminal(fb, pitch, width, height, terminal_y_inicial, &cursor_x,
                       &cursor_y, &cursor_base_x, &linha_len);
+      atualizar_tela = 1;
       break;
 
     case TECLA_CTRL_C:
@@ -222,6 +271,8 @@ void kernel_main(multiboot_info_t *mbd) {
       for (int i = 0; i < clipboard_len; i++)
         inserir_char(clipboard[i], fb, pitch, width, height, &cursor_x,
                      &cursor_y, linha_atual, &linha_len);
+      if (clipboard_len > 0)
+        atualizar_tela = 1;
       break;
 
     default: {
@@ -238,12 +289,14 @@ void kernel_main(multiboot_info_t *mbd) {
             cursor_x -= 16;
             desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
             linha_len--;
+            atualizar_tela = 1;
           } else if (cursor_y > terminal_y_inicial) {
             cursor_y -= 24;
             int chars_por_linha = (width - 100) / 16;
             cursor_x = 50 + (chars_por_linha - 1) * 16;
             desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
             linha_len--;
+            atualizar_tela = 1;
           }
         }
       } else if (c == '\n') {
@@ -253,10 +306,12 @@ void kernel_main(multiboot_info_t *mbd) {
         if (r == COMANDO_LIMPAR) {
           limpar_terminal(fb, pitch, width, height, terminal_y_inicial,
                           &cursor_x, &cursor_y, &cursor_base_x, &linha_len);
+          atualizar_tela = 1;
         } else if (r == COMANDO_EXIT) {
           if (cursor_y + 24 < (int)height - 24)
             cursor_y += 24;
           desenhar_string("Desligando o VG-OS...", 50, cursor_y, 0x00FFFF00, fb, pitch);
+          sincronizar_vram_provisorio();
 
           // Tentar desligamento via portas de E/S (QEMU / Bochs / VirtualBox)
           outw(0x604, 0x2000);   // QEMU ACPI shutdown
@@ -268,6 +323,7 @@ void kernel_main(multiboot_info_t *mbd) {
             cursor_y += 24;
           desenhar_string("Sistema finalizado. Voce pode desligar o computador com seguranca.",
                           50, cursor_y, 0x00AAAAAA, fb, pitch);
+          sincronizar_vram_provisorio();
           asm volatile("cli");
           while (1) {
             asm volatile("hlt");
@@ -280,13 +336,18 @@ void kernel_main(multiboot_info_t *mbd) {
           cursor_base_x = 50 + 208;
           cursor_x = cursor_base_x;
           linha_len = 0;
+          atualizar_tela = 1;
         }
       } else {
         inserir_char(c, fb, pitch, width, height, &cursor_x, &cursor_y,
                      linha_atual, &linha_len);
+        atualizar_tela = 1;
       }
       break;
     }
     }
+
+    if (atualizar_tela)
+      sincronizar_vram_provisorio();
   }
 }
