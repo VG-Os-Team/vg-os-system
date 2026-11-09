@@ -16,6 +16,7 @@
 #include "include/pmm.h"
 #include "include/paging.h"
 #include "include/heap.h"
+#include "include/video.h"
 
 #define LINHA_MAX 1024
 
@@ -27,9 +28,8 @@ static void limpar_terminal(uint32_t *fb, uint32_t pitch, uint32_t width,
                             uint32_t height, int terminal_y_inicial,
                             int *cursor_x, int *cursor_y, int *cursor_base_x,
                             int *linha_len) {
-  for (uint32_t y = terminal_y_inicial; y < height; y++)
-    for (uint32_t x = 0; x < width; x++)
-      fb[(y * pitch / 4) + x] = 0x00000000;
+  video_fill_rect(0, (uint32_t)terminal_y_inicial, width,
+                  height - (uint32_t)terminal_y_inicial, 0x00000000);
 
   *cursor_y = terminal_y_inicial;
   desenhar_string("root@vgos:~# ", 50, *cursor_y, 0x0000FF00, fb, pitch);
@@ -38,9 +38,6 @@ static void limpar_terminal(uint32_t *fb, uint32_t pitch, uint32_t width,
   *linha_len = 0;
 }
 
-// Insere um caractere no terminal: desenha, avança cursor, cuida de quebra de
-// linha, e registra no buffer da linha atual (usado por digitação normal e por
-// Ctrl+V)
 static void inserir_char(char c, uint32_t *fb, uint32_t pitch, uint32_t width,
                          uint32_t height, int *cursor_x, int *cursor_y,
                          char *linha, int *linha_len) {
@@ -64,58 +61,44 @@ void kernel_main(multiboot_info_t *mbd) {
   // Mantém interrupções mascaráveis desabilitadas durante a inicialização
   asm volatile("cli" ::: "memory");
 
-  // Confira a presenca antes de ler os campos de video do Multiboot.
-  // Ate concluir a validacao, o panic permanece sem video e apenas para.
-  if (!mbd || !(mbd->flags & (1U << 12)))
-    kernel_panic("Boot sem framebuffer disponivel.", 0);
+  // 1. Inicializa o driver de Framebuffer VESA (1024x768 32bpp)
+  video_status_t vstatus = video_init(mbd);
+  if (vstatus != VIDEO_OK)
+    kernel_panic(video_status_str(vstatus), 0);
 
-  // Valide o endereco completo antes da conversao para ponteiro de 32 bits.
-  if (!mbd->framebuffer_addr || mbd->framebuffer_addr > UINT32_MAX ||
-      mbd->framebuffer_bpp != 32 || mbd->framebuffer_type != 1)
-    kernel_panic("Formato de framebuffer nao suportado.", 0);
+  uint32_t *fb    = video_get_framebuffer();
+  uint32_t pitch  = video_get_pitch();
+  uint32_t width  = video_get_width();
+  uint32_t height = video_get_height();
 
-  // Multiboot RGB: posicao e tamanho de R, G e B, nessa ordem.
-  // O renderizador atual escreve pixels no formato 0x00RRGGBB.
-  if (mbd->color_info[0] != 16 || mbd->color_info[1] != 8 ||
-      mbd->color_info[2] != 8 || mbd->color_info[3] != 8 ||
-      mbd->color_info[4] != 0 || mbd->color_info[5] != 8)
-    kernel_panic("Layout RGB de framebuffer nao suportado.", 0);
-
-  uint32_t *fb = (uint32_t *)(uintptr_t)mbd->framebuffer_addr;
-  uint32_t pitch = mbd->framebuffer_pitch;
-  uint32_t width = mbd->framebuffer_width;
-  uint32_t height = mbd->framebuffer_height;
-
-  // O framebuffer so fica habilitado se toda a geometria for valida.
+  // O framebuffer só fica habilitado no panic se toda a geometria for válida.
   if (!panic_configurar_video(fb, pitch, width, height))
     kernel_panic("Geometria de framebuffer invalida.", 0);
 
-  // Inicializa o parser do mapa de memória Multiboot.
+  // 2. Inicializa o parser do mapa de memória Multiboot e PMM
   multiboot_mem_status_t mem_status = multiboot_mem_init(mbd);
   if (mem_status != MULTIBOOT_MEM_OK)
     kernel_panic("Falha ao ler o mapa de memoria Multiboot.", 0);
 
-  // Inicializa o alocador de paginas fisicas (PMM) de 4KB baseado em bitmap.
   pmm_init(mbd);
 
-  // 3. INICIALIZA A GDT, IDT E PIC
+  // 3. Inicializa a GDT, IDT e PIC
   gdt_instalar();
   idt_install();
   isr_install();
   irq_install();
   pic_init();
-  // Ativa a paginacao x86 (identity map do kernel e do framebuffer).
-  // Fica depois de idt/isr para que um Page Fault vire kernel panic.
-  if (paging_init((uint32_t)mbd->framebuffer_addr, pitch * height) != PAGING_OK)
+
+  // 4. Ativa a paginação x86 (identity map do kernel e da VRAM do framebuffer)
+  if (paging_init((uint32_t)(uintptr_t)fb, video_get_size_bytes()) != PAGING_OK)
     kernel_panic("Falha ao ativar a paginacao.", 0);
-  // Heap dinamico do kernel (kmalloc/kfree), sobre paginas pedidas ao PMM.
+
+  // 5. Heap dinâmico do kernel (kmalloc/kfree), sobre páginas pedidas ao PMM
   if (heap_init_from_pmm(HEAP_INITIAL_SIZE) != 0)
     kernel_panic("Falha ao inicializar o heap do kernel.", 0);
-  // Fundo preto
-  for (uint32_t y = 0; y < height; y++) {
-    for (uint32_t x = 0; x < width; x++)
-      fb[(y * pitch / 4) + x] = 0x00000000;
-  }
+
+  // Limpa a tela inteira com fundo preto via driver VESA
+  video_clear(0x00000000);
 
   // Letras VGOS em blocos grandes
   static const uint16_t letra_V[] = {
@@ -143,7 +126,7 @@ void kernel_main(multiboot_info_t *mbd) {
 
   // Centralizar logo + VGOS juntos na tela
   int art_total_w = let_w * 4 + let_gap * 3;  // 324px de texto
-  int header_gap = 50;                         // espaço entre logo e texto
+  int header_gap = 50;                        // espaço entre logo e texto
   int total_header_w = (int)logo_width + header_gap + art_total_w;
   int start_x = ((int)width - total_header_w) / 2;
   if (start_x < 20)
@@ -154,10 +137,10 @@ void kernel_main(multiboot_info_t *mbd) {
   desenhar_logo(fb, pitch, logo_x, logo_y);
 
   int art_x = logo_x + (int)logo_width + header_gap;
-  int art_y = logo_y + ((int)logo_height - let_h) / 2; // centralizar verticalmente
+  int art_y = logo_y + ((int)logo_height - let_h) / 2;
 
-  // Renderizar as 4 letras em verde escuro
-  uint32_t cor_vgos = 0x00228B22; // Verde escuro (Forest Green)
+  // Renderizar as 4 letras em verde escuro usando o driver de vídeo
+  uint32_t cor_vgos = 0x00228B22;
   const uint16_t *letras[] = {letra_V, letra_G, letra_O, letra_S};
   for (int li = 0; li < 4; li++) {
     int lx = art_x + li * (let_w + let_gap);
@@ -167,19 +150,18 @@ void kernel_main(multiboot_info_t *mbd) {
         if (bits & (1 << c)) {
           int bx = lx + c * blk_w;
           int by = art_y + r * blk_h;
-          for (int py = 0; py < blk_h; py++)
-            for (int px = 0; px < blk_w; px++)
-              fb[((by + py) * pitch / 4) + (bx + px)] = cor_vgos;
+          video_fill_rect((uint32_t)bx, (uint32_t)by, (uint32_t)blk_w,
+                          (uint32_t)blk_h, cor_vgos);
         }
       }
     }
   }
 
-  // Linha separadora sutil
+  // Linha separadora subtil
   int margin = 50;
   int sep_y = logo_y + (int)logo_height + 15;
   for (uint32_t sx = (uint32_t)margin; sx < width - (uint32_t)margin; sx++)
-    fb[(sep_y * pitch / 4) + sx] = 0x00333333;
+    video_put_pixel(sx, (uint32_t)sep_y, 0x00333333);
 
   // Terminal abaixo da linha separadora
   int text_y = sep_y + 15;
@@ -197,7 +179,6 @@ void kernel_main(multiboot_info_t *mbd) {
   int cursor_x = cursor_base_x;
   int cursor_y = text_y;
 
-  // Loop do Teclado
   // O Loop do Terminal
   while (1) {
     int tecla = teclado_ler();
@@ -226,8 +207,6 @@ void kernel_main(multiboot_info_t *mbd) {
 
     default: {
       if (tecla < 0) {
-        // Teclas estendidas que não geram ASCII (como setas, Delete, etc.)
-        // ignoradas por enquanto
         break;
       }
       char c = (char)tecla;
@@ -258,15 +237,13 @@ void kernel_main(multiboot_info_t *mbd) {
             cursor_y += 24;
           desenhar_string("Desligando o VG-OS...", 50, cursor_y, 0x00FFFF00, fb, pitch);
 
-          // Tentar desligamento via portas de E/S (QEMU / Bochs / VirtualBox)
           outw(0x604, 0x2000);   // QEMU ACPI shutdown
           outw(0xB004, 0x2000);  // Bochs / QEMU legado
           outw(0x4004, 0x3400);  // VirtualBox
 
-          // Fallback caso a máquina não desligue por porta (ou hardware real sem ACPI)
           if (cursor_y + 24 < (int)height - 24)
             cursor_y += 24;
-          desenhar_string("Sistema finalizado. Voce pode desligar o computador com seguranca.",
+          desenhar_string("Sistema finalizado. Pode desligar o computador com seguranca.",
                           50, cursor_y, 0x00AAAAAA, fb, pitch);
           asm volatile("cli");
           while (1) {

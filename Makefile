@@ -22,22 +22,23 @@ BIN      = $(BUILD_DIR)/meuos.bin
 
 # Fontes C do kernel e subsistemas
 C_SRCS = \
-	kernel.c \
-	strutil.c \
-	comandos/comandos.c \
-	gdt/gdt.c \
-	gdt/tss.c \
-	src/arch/x86/idt.c \
-	images/logo/logo.c \
-	isr/isr.c \
-	keyboard/keyboard.c \
-	pic/pic.c \
-	Render/render.c \
-	src/arch/x86/panic.c \
-	src/mm/multiboot_mem.c \
-	src/mm/pmm.c \
-	src/mm/paging.c \
-	src/mm/heap.c
+    kernel.c \
+    strutil.c \
+    comandos/comandos.c \
+    gdt/gdt.c \
+    gdt/tss.c \
+    src/arch/x86/idt.c \
+    images/logo/logo.c \
+    isr/isr.c \
+    keyboard/keyboard.c \
+    pic/pic.c \
+    Render/render.c \
+    src/arch/x86/panic.c \
+    src/mm/multiboot_mem.c \
+    src/mm/pmm.c \
+    src/mm/paging.c \
+    src/mm/heap.c \
+    src/drivers/video.c
 
 
 # Fontes Assembly com sintaxe GNU Assembler (GAS)
