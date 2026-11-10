@@ -1,9 +1,11 @@
 #include "../../include/video.h"
+#include "../../include/heap.h"
 #include <stdint.h>
 #include <stddef.h>
 
 static video_info_t g_video_info;
 static int g_video_initialized = 0;
+static int g_double_buffering_enabled = 0;
 
 video_status_t video_init(const multiboot_info_t *mbd) {
     if (mbd == NULL)
@@ -47,16 +49,69 @@ video_status_t video_init(const multiboot_info_t *mbd) {
     if (total_bytes == 0 || total_bytes > UINT32_MAX)
         return VIDEO_ERR_INVALID_GEOMETRY;
 
-    g_video_info.phys_addr  = (uint32_t)mbd->framebuffer_addr;
-    g_video_info.vram       = (uint32_t *)(uintptr_t)g_video_info.phys_addr;
-    g_video_info.width      = mbd->framebuffer_width;
-    g_video_info.height     = mbd->framebuffer_height;
-    g_video_info.pitch      = mbd->framebuffer_pitch;
-    g_video_info.bpp        = mbd->framebuffer_bpp;
-    g_video_info.size_bytes = (uint32_t)total_bytes;
+    g_video_info.phys_addr        = (uint32_t)mbd->framebuffer_addr;
+    g_video_info.vram             = (uint32_t *)(uintptr_t)g_video_info.phys_addr;
+    g_video_info.backbuffer       = NULL;
+    g_video_info.width            = mbd->framebuffer_width;
+    g_video_info.height           = mbd->framebuffer_height;
+    g_video_info.pitch            = mbd->framebuffer_pitch;
+    g_video_info.backbuffer_pitch = 0;
+    g_video_info.bpp              = mbd->framebuffer_bpp;
+    g_video_info.size_bytes       = (uint32_t)total_bytes;
+    g_video_info.backbuffer_size  = 0;
 
     g_video_initialized = 1;
+    g_double_buffering_enabled = 0;
     return VIDEO_OK;
+}
+
+video_status_t video_init_backbuffer(void) {
+    if (!g_video_initialized)
+        return VIDEO_ERR_NOT_INITIALIZED;
+
+    /*
+     * Calcula o tamanho em bytes equivalente a tela (1024 * 768 * 4 bytes
+     * no modo padrao 1024x768 32bpp, ou width * height * 4 da resolucao ativa).
+     */
+    uint64_t bb_bytes = (uint64_t)g_video_info.width *
+                        (uint64_t)g_video_info.height *
+                        (uint64_t)VIDEO_BYTES_PER_PIXEL;
+    if (bb_bytes == 0 || bb_bytes > UINT32_MAX)
+        return VIDEO_ERR_INVALID_GEOMETRY;
+
+    uint32_t alloc_size = (uint32_t)bb_bytes;
+
+    if (g_video_info.backbuffer != NULL) {
+        if (g_video_info.backbuffer_size == alloc_size) {
+            g_double_buffering_enabled = 1;
+            video_clear(0x00000000);
+            return VIDEO_OK;
+        }
+        video_free_backbuffer();
+    }
+
+    uint32_t *buf = (uint32_t *)kmalloc((size_t)alloc_size);
+    if (buf == NULL)
+        return VIDEO_ERR_BACKBUFFER_ALLOC;
+
+    g_video_info.backbuffer       = buf;
+    g_video_info.backbuffer_pitch = g_video_info.width * VIDEO_BYTES_PER_PIXEL;
+    g_video_info.backbuffer_size  = alloc_size;
+    g_double_buffering_enabled    = 1;
+
+    /* Zera todo o backbuffer recem-alocado na RAM */
+    video_clear(0x00000000);
+    return VIDEO_OK;
+}
+
+void video_free_backbuffer(void) {
+    if (g_video_info.backbuffer != NULL) {
+        kfree(g_video_info.backbuffer);
+        g_video_info.backbuffer = NULL;
+    }
+    g_video_info.backbuffer_pitch = 0;
+    g_video_info.backbuffer_size  = 0;
+    g_double_buffering_enabled    = 0;
 }
 
 const video_info_t *video_get_info(void) {
@@ -69,6 +124,34 @@ uint32_t *video_get_framebuffer(void) {
 
 uint32_t video_get_pitch(void) {
     return g_video_info.pitch;
+}
+
+uint32_t *video_get_backbuffer(void) {
+    return g_video_info.backbuffer;
+}
+
+uint32_t video_get_backbuffer_pitch(void) {
+    return g_video_info.backbuffer_pitch;
+}
+
+uint32_t video_get_backbuffer_size(void) {
+    return g_video_info.backbuffer_size;
+}
+
+uint32_t *video_get_draw_buffer(void) {
+    if (g_double_buffering_enabled && g_video_info.backbuffer != NULL)
+        return g_video_info.backbuffer;
+    return g_video_info.vram;
+}
+
+uint32_t video_get_draw_pitch(void) {
+    if (g_double_buffering_enabled && g_video_info.backbuffer != NULL)
+        return g_video_info.backbuffer_pitch;
+    return g_video_info.pitch;
+}
+
+int video_is_double_buffered(void) {
+    return g_double_buffering_enabled && (g_video_info.backbuffer != NULL);
 }
 
 uint32_t video_get_width(void) {
@@ -93,8 +176,9 @@ void video_put_pixel(uint32_t x, uint32_t y, uint32_t color) {
     if (x >= g_video_info.width || y >= g_video_info.height)
         return;
 
-    uint32_t stride = g_video_info.pitch >> 2; /* pitch / 4 */
-    g_video_info.vram[y * stride + x] = color;
+    uint32_t *target = video_get_draw_buffer();
+    uint32_t stride = video_get_draw_pitch() >> 2; /* pitch / 4 */
+    target[y * stride + x] = color;
 }
 
 void video_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
@@ -110,9 +194,10 @@ void video_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t co
     if (end_y > g_video_info.height)
         end_y = g_video_info.height;
 
-    uint32_t stride = g_video_info.pitch >> 2;
+    uint32_t *target = video_get_draw_buffer();
+    uint32_t stride = video_get_draw_pitch() >> 2;
     for (uint32_t py = y; py < end_y; py++) {
-        uint32_t *row = &g_video_info.vram[py * stride];
+        uint32_t *row = &target[py * stride];
         for (uint32_t px = x; px < end_x; px++) {
             row[px] = color;
         }
@@ -139,6 +224,10 @@ const char *video_status_str(video_status_t status) {
         return "Layout RGB de framebuffer nao suportado.";
     case VIDEO_ERR_INVALID_GEOMETRY:
         return "Geometria de framebuffer invalida.";
+    case VIDEO_ERR_NOT_INITIALIZED:
+        return "Driver de video nao inicializado.";
+    case VIDEO_ERR_BACKBUFFER_ALLOC:
+        return "Falha ao alocar o backbuffer na RAM.";
     default:
         return "Erro desconhecido de video.";
     }

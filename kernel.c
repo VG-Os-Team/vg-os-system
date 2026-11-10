@@ -24,6 +24,40 @@ static inline void outw(uint16_t port, uint16_t val) {
   asm volatile("outw %0, %1" : : "a"(val), "Nd"(port));
 }
 
+// Copia provisoria do backbuffer (RAM) para a VRAM fisica ate a criacao
+// de render_flush() na Tarefa 19, mantendo o terminal visivel e sem flicker.
+static void sincronizar_vram_provisorio(void) {
+  const uint32_t *src = video_get_backbuffer();
+  uint32_t *dst = video_get_framebuffer();
+  if (!src || !dst || src == dst)
+    return;
+
+  uint32_t width = video_get_width();
+  uint32_t height = video_get_height();
+  uint32_t src_pitch = video_get_backbuffer_pitch();
+  uint32_t dst_pitch = video_get_pitch();
+
+  if (src_pitch == dst_pitch && src_pitch == width * 4U) {
+    uint32_t total_pixels = width * height;
+    asm volatile("cld; rep movsl"
+                 : "+S"(src), "+D"(dst), "+c"(total_pixels)
+                 :
+                 : "memory", "cc");
+    return;
+  }
+
+  for (uint32_t y = 0; y < height; y++) {
+    const uint32_t *linha_src =
+        (const uint32_t *)((const uint8_t *)src + y * src_pitch);
+    uint32_t *linha_dst = (uint32_t *)((uint8_t *)dst + y * dst_pitch);
+    uint32_t cols = width;
+    asm volatile("cld; rep movsl"
+                 : "+S"(linha_src), "+D"(linha_dst), "+c"(cols)
+                 :
+                 : "memory", "cc");
+  }
+}
+
 static void limpar_terminal(uint32_t *fb, uint32_t pitch, uint32_t width,
                             uint32_t height, int terminal_y_inicial,
                             int *cursor_x, int *cursor_y, int *cursor_base_x,
@@ -97,7 +131,16 @@ void kernel_main(multiboot_info_t *mbd) {
   if (heap_init_from_pmm(HEAP_INITIAL_SIZE) != 0)
     kernel_panic("Falha ao inicializar o heap do kernel.", 0);
 
-  // Limpa a tela inteira com fundo preto via driver VESA
+  // 6. Aloca o backbuffer na RAM para Double Buffering (Tarefa 16)
+  vstatus = video_init_backbuffer();
+  if (vstatus != VIDEO_OK)
+    kernel_panic(video_status_str(vstatus), 0);
+
+  // Direciona todas as operacoes de desenho para o backbuffer secundario na RAM
+  fb    = video_get_draw_buffer();
+  pitch = video_get_draw_pitch();
+
+  // Limpa o backbuffer inteiro com fundo preto via driver de vídeo
   video_clear(0x00000000);
 
   // Letras VGOS em blocos grandes
@@ -179,6 +222,9 @@ void kernel_main(multiboot_info_t *mbd) {
   int cursor_x = cursor_base_x;
   int cursor_y = text_y;
 
+  // Apresenta o quadro inicial completo na VRAM de uma unica vez (sem flicker)
+  sincronizar_vram_provisorio();
+
   // O Loop do Terminal
   while (1) {
     int tecla = teclado_ler();
@@ -187,10 +233,13 @@ void kernel_main(multiboot_info_t *mbd) {
       continue;
     }
 
+    int atualizar_tela = 0;
+
     switch (tecla) {
     case TECLA_CTRL_L:
       limpar_terminal(fb, pitch, width, height, terminal_y_inicial, &cursor_x,
                       &cursor_y, &cursor_base_x, &linha_len);
+      atualizar_tela = 1;
       break;
 
     case TECLA_CTRL_C:
@@ -203,6 +252,8 @@ void kernel_main(multiboot_info_t *mbd) {
       for (int i = 0; i < clipboard_len; i++)
         inserir_char(clipboard[i], fb, pitch, width, height, &cursor_x,
                      &cursor_y, linha_atual, &linha_len);
+      if (clipboard_len > 0)
+        atualizar_tela = 1;
       break;
 
     default: {
@@ -217,12 +268,14 @@ void kernel_main(multiboot_info_t *mbd) {
             cursor_x -= 16;
             desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
             linha_len--;
+            atualizar_tela = 1;
           } else if (cursor_y > terminal_y_inicial) {
             cursor_y -= 24;
             int chars_por_linha = (width - 100) / 16;
             cursor_x = 50 + (chars_por_linha - 1) * 16;
             desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
             linha_len--;
+            atualizar_tela = 1;
           }
         }
       } else if (c == '\n') {
@@ -232,10 +285,12 @@ void kernel_main(multiboot_info_t *mbd) {
         if (r == COMANDO_LIMPAR) {
           limpar_terminal(fb, pitch, width, height, terminal_y_inicial,
                           &cursor_x, &cursor_y, &cursor_base_x, &linha_len);
+          atualizar_tela = 1;
         } else if (r == COMANDO_EXIT) {
           if (cursor_y + 24 < (int)height - 24)
             cursor_y += 24;
           desenhar_string("Desligando o VG-OS...", 50, cursor_y, 0x00FFFF00, fb, pitch);
+          sincronizar_vram_provisorio();
 
           outw(0x604, 0x2000);   // QEMU ACPI shutdown
           outw(0xB004, 0x2000);  // Bochs / QEMU legado
@@ -245,6 +300,7 @@ void kernel_main(multiboot_info_t *mbd) {
             cursor_y += 24;
           desenhar_string("Sistema finalizado. Pode desligar o computador com seguranca.",
                           50, cursor_y, 0x00AAAAAA, fb, pitch);
+          sincronizar_vram_provisorio();
           asm volatile("cli");
           while (1) {
             asm volatile("hlt");
@@ -257,13 +313,18 @@ void kernel_main(multiboot_info_t *mbd) {
           cursor_base_x = 50 + 208;
           cursor_x = cursor_base_x;
           linha_len = 0;
+          atualizar_tela = 1;
         }
       } else {
         inserir_char(c, fb, pitch, width, height, &cursor_x, &cursor_y,
                      linha_atual, &linha_len);
+        atualizar_tela = 1;
       }
       break;
     }
     }
+
+    if (atualizar_tela)
+      sincronizar_vram_provisorio();
   }
 }
