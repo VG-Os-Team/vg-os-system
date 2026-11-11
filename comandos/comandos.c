@@ -4,6 +4,7 @@
 #include "version.h"
 #include "gdt.h"
 #include "include/pmm.h"
+#include "gfx.h"
 
 // Escreve exatamente 8 digitos hexadecimais (sem depender de printf/libc).
 static void escrever_hex(char *destino, uint32_t valor) {
@@ -168,6 +169,25 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
     return COMANDO_OK;
   }
 
+  /* Teste das primitivas graficas - Tarefa 17 */
+if (comando_igual(linha, len, "gfx")) {
+
+    // Teste de limites
+    gfx_draw_rect(1900, 1060, 100, 100, 0x00FFFF00);
+    gfx_put_pixel(1920, 1080, 0x00FFFFFF);
+
+    // Teste de pixel individual
+    gfx_put_pixel(400, 300, 0x000000FF);
+
+    // Teste de retangulo, linha e texto
+    gfx_draw_rect(100, 400, 250, 120, 0x0000FF00);
+    gfx_draw_line(100, 400, 350, 520, 0x00FF0000);
+    gfx_draw_char('V', 120, 420, 0x00FFFFFF);
+    gfx_draw_string("VGOS GRAPHICS OK", 120, 550, 0x0000FFFF);
+
+    *cursor_y += 24;
+    return COMANDO_OK;
+}
   if (comando_igual(linha, len, "version")) {
     *cursor_y += 24;
     desenhar_string(OS_BANNER, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
