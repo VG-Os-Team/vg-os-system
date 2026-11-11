@@ -38,7 +38,8 @@ C_SRCS = \
     src/mm/pmm.c \
     src/mm/paging.c \
     src/mm/heap.c \
-    src/drivers/video.c
+    src/drivers/video.c \
+    src/drivers/gfx.c
 
 
 # Fontes Assembly com sintaxe GNU Assembler (GAS)
