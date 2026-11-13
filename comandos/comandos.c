@@ -3,8 +3,12 @@
 #include "layout.h"
 #include "version.h"
 #include "gdt.h"
+#include "include/heap.h"
 #include "include/pmm.h"
+#include "include/video.h"
 #include "gfx.h"
+#include "images/logo/logo.h"
+#include "render.h"
 
 // Escreve exatamente 8 digitos hexadecimais (sem depender de printf/libc).
 static void escrever_hex(char *destino, uint32_t valor) {
@@ -36,6 +40,116 @@ static void copiar_str(char *dest, const char *src, int *pos) {
   while (*src) {
     dest[(*pos)++] = *src++;
   }
+}
+
+static void escrever_info_uint(char *destino, const char *prefixo,
+                               uint32_t valor, const char *sufixo) {
+  int pos = 0;
+  copiar_str(destino, prefixo, &pos);
+  pos += escrever_uint(destino + pos, valor);
+  copiar_str(destino, sufixo, &pos);
+  destino[pos] = '\0';
+}
+
+static int preparar_info_logo(layout_bounds_t area, uint32_t linhas,
+                              int *cursor_y) {
+  int ultima_linha = area.y + area.height - LAYOUT_CELL_H;
+  int inicio_maximo = ultima_linha - (int)(linhas - 1U) * LAYOUT_CELL_H;
+  layout_next_line(cursor_y);
+  int inicio = *cursor_y;
+
+  if (inicio > inicio_maximo) {
+    while (*cursor_y < ultima_linha)
+      layout_next_line(cursor_y);
+    uint32_t linhas_rolar = (uint32_t)(inicio - inicio_maximo) / LAYOUT_CELL_H;
+    for (uint32_t i = 0; i < linhas_rolar; i++)
+      layout_next_line(cursor_y);
+    inicio = inicio_maximo;
+  }
+  return inicio;
+}
+
+static void mostrar_info(int *cursor_y) {
+  char linhas[7][64];
+  pmm_stats_t memoria;
+  pmm_get_stats(&memoria);
+
+  int pos = 0;
+  copiar_str(linhas[0], OS_NAME, &pos);
+  linhas[0][pos] = '\0';
+
+  pos = 0;
+  copiar_str(linhas[1], "Versao: ", &pos);
+  copiar_str(linhas[1], OS_VERSION "-" OS_STAGE, &pos);
+  linhas[1][pos] = '\0';
+
+  pos = 0;
+  copiar_str(linhas[2], "Kernel: x86 (32-bit)", &pos);
+  linhas[2][pos] = '\0';
+
+  pos = 0;
+  copiar_str(linhas[3], "Tela: ", &pos);
+  pos += escrever_uint(linhas[3] + pos, video_get_width());
+  copiar_str(linhas[3], "x", &pos);
+  pos += escrever_uint(linhas[3] + pos, video_get_height());
+  copiar_str(linhas[3], " @ ", &pos);
+  pos += escrever_uint(linhas[3] + pos, video_get_bpp());
+  copiar_str(linhas[3], " bpp", &pos);
+  linhas[3][pos] = '\0';
+
+  pos = 0;
+  copiar_str(linhas[4], "RAM: ", &pos);
+  pos += escrever_uint(linhas[4] + pos, memoria.used_memory_kb / 1024U);
+  copiar_str(linhas[4], " / ", &pos);
+  pos += escrever_uint(linhas[4] + pos, memoria.total_memory_kb / 1024U);
+  copiar_str(linhas[4], " MB", &pos);
+  linhas[4][pos] = '\0';
+
+  escrever_info_uint(linhas[5], "RAM livre: ",
+                     memoria.free_memory_kb / 1024U, " MB");
+  escrever_info_uint(linhas[6], "Heap livre: ",
+                     (uint32_t)(heap_free_bytes() / 1024U), " KB");
+
+  layout_bounds_t area = layout_get_terminal_bounds();
+  uint32_t logo_linhas = (logo_height + LAYOUT_CELL_H - 1U) / LAYOUT_CELL_H;
+  uint32_t max_info = 0;
+  for (uint32_t i = 0; i < sizeof(linhas) / sizeof(linhas[0]); i++) {
+    uint32_t tamanho = (uint32_t)minha_strlen(linhas[i]);
+    if (tamanho > max_info)
+      max_info = tamanho;
+  }
+
+  uint32_t linhas_info = sizeof(linhas) / sizeof(linhas[0]);
+  uint32_t total_linhas = logo_linhas + linhas_info;
+  uint32_t linhas_tela = (uint32_t)area.height / LAYOUT_CELL_H;
+  if ((uint32_t)area.width < logo_width || linhas_tela < total_linhas) {
+    for (uint32_t i = 0; i < linhas_info; i++)
+      layout_write_line(linhas[i], LAYOUT_TEXT, cursor_y);
+    return;
+  }
+
+  uint32_t largura_info = logo_width + 2U * LAYOUT_CELL_W + max_info * LAYOUT_CELL_W;
+  int ao_lado = largura_info <= (uint32_t)area.width;
+  uint32_t linhas_reservadas = ao_lado ? logo_linhas : total_linhas;
+  int inicio = preparar_info_logo(area, linhas_reservadas, cursor_y);
+  uint32_t altura_reservada = linhas_reservadas * LAYOUT_CELL_H;
+  video_fill_rect((uint32_t)area.x, (uint32_t)inicio,
+                  (uint32_t)area.width, altura_reservada, LAYOUT_BG);
+  desenhar_logo(video_get_draw_buffer(), video_get_draw_pitch(),
+                area.x, inicio);
+
+  if (ao_lado) {
+    uint32_t x_info = (uint32_t)(area.x + logo_width + 2U * LAYOUT_CELL_W);
+    for (uint32_t i = 0; i < linhas_info; i++)
+      gfx_draw_string(linhas[i], x_info,
+                      (uint32_t)(inicio + i * LAYOUT_CELL_H), LAYOUT_TEXT);
+    *cursor_y = inicio + (int)(logo_linhas - 1U) * LAYOUT_CELL_H;
+    return;
+  }
+
+  *cursor_y = inicio + (int)(logo_linhas - 1U) * LAYOUT_CELL_H;
+  for (uint32_t i = 0; i < linhas_info; i++)
+    layout_write_line(linhas[i], LAYOUT_TEXT, cursor_y);
 }
 
 static void mostrar_pmm(int *cursor_y) {
@@ -126,6 +240,7 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
       comando_igual(linha, len, "helpet")) {
     layout_write_line("------Comandos disponiveis:------", LAYOUT_TEXT, cursor_y);
     layout_write_line("help    - mostra esta lista", LAYOUT_MUTED, cursor_y);
+    layout_write_line("info    - mostra logo e informacoes do sistema", LAYOUT_MUTED, cursor_y);
     layout_write_line("version - mostra a versao do sistema", LAYOUT_MUTED, cursor_y);
     layout_write_line("gdt     - verifica a GDT e o TSS", LAYOUT_MUTED, cursor_y);
     layout_write_line("pmm     - diagnostico do alocador de memoria fisica (PMM)", LAYOUT_MUTED, cursor_y);
@@ -150,6 +265,11 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
   }
   if (comando_igual(linha, len, "version")) {
     layout_write_line(OS_BANNER, LAYOUT_TEXT, cursor_y);
+    return COMANDO_OK;
+  }
+
+  if (comando_igual(linha, len, "info")) {
+    mostrar_info(cursor_y);
     return COMANDO_OK;
   }
 

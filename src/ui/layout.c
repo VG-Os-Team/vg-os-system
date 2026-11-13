@@ -36,12 +36,14 @@ static void draw_bar(int y, int height, int width, const char *left,
 static void draw_footer(int w, int h) {
     static const char keys[] = "Ctrl+L limpar  Ctrl+C copiar  Ctrl+V colar";
     int buffered = video_is_double_buffered();
-    static const char active[] = "Shell | " OS_VERSION "-" OS_STAGE " | Backbuffer ativo";
-    static const char inactive[] = "Shell | " OS_VERSION "-" OS_STAGE " | Backbuffer inativo";
+    static const char active[] = "Shell | Backbuffer ativo";
+    static const char inactive[] = "Shell | Backbuffer inativo";
+    static const char active_compact[] = "Shell | BB on";
+    static const char inactive_compact[] = "Shell | BB off";
     const char *status = buffered ? active : inactive;
     int columns = (w - 2 * MARGIN) / LAYOUT_CELL_W;
     if (columns < (int)sizeof(inactive) - 1)
-        status = buffered ? OS_VERSION "-" OS_STAGE " | BB on" : OS_VERSION "-" OS_STAGE " | BB off";
+        status = buffered ? active_compact : inactive_compact;
     draw_bar(h - FOOTER, FOOTER, w, status, keys, sizeof(keys) - 1);
     gfx_draw_rect(0, h - FOOTER, w, 1, BORDER);
 }

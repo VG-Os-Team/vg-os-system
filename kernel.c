@@ -68,7 +68,7 @@ typedef struct {
 } entrada_t;
 
 static void iniciar_prompt(entrada_t *e) {
-    gfx_draw_string(prompt, e->area.x, e->y, LAYOUT_TEXT);
+    gfx_draw_string(prompt, e->area.x, e->y, LAYOUT_PROMPT);
     e->x = e->area.x + (sizeof(prompt) - 1) * LAYOUT_CELL_W;
     e->len = 0;
 }
