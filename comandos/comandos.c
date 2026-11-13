@@ -1,6 +1,6 @@
 #include "comandos.h"
 #include "../strutil.h"
-#include "render.h"
+#include "layout.h"
 #include "version.h"
 #include "gdt.h"
 #include "include/pmm.h"
@@ -38,13 +38,11 @@ static void copiar_str(char *dest, const char *src, int *pos) {
   }
 }
 
-static void mostrar_pmm(uint32_t *fb, uint32_t pitch, int *cursor_y) {
+static void mostrar_pmm(int *cursor_y) {
   pmm_stats_t stats;
   pmm_get_stats(&stats);
 
-  *cursor_y += 24;
-  desenhar_string("--- PMM: Alocador de Memoria Fisica (4KB Bitmap) ---", 50, *cursor_y,
-                  0x00FFD166, fb, pitch);
+  layout_write_line("--- PMM: Alocador de Memoria Fisica (4KB Bitmap) ---", LAYOUT_TEXT, cursor_y);
 
   char buf[96];
   int p = 0;
@@ -54,8 +52,7 @@ static void mostrar_pmm(uint32_t *fb, uint32_t pitch, int *cursor_y) {
   p += escrever_uint(buf + p, stats.total_blocks);
   copiar_str(buf, " blocos de 4KB)", &p);
   buf[p] = '\0';
-  *cursor_y += 24;
-  desenhar_string(buf, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
+  layout_write_line(buf, LAYOUT_TEXT, cursor_y);
 
   p = 0;
   copiar_str(buf, "Usados: ", &p);
@@ -66,8 +63,7 @@ static void mostrar_pmm(uint32_t *fb, uint32_t pitch, int *cursor_y) {
   p += escrever_uint(buf + p, stats.free_memory_kb / 1024);
   copiar_str(buf, " MB livres)", &p);
   buf[p] = '\0';
-  *cursor_y += 24;
-  desenhar_string(buf, 50, *cursor_y, 0x00AAAAAA, fb, pitch);
+  layout_write_line(buf, LAYOUT_MUTED, cursor_y);
 
   // Teste dinamico de alocacao e liberacao de bloco fisico
   void *bloco = pmm_alloc_block();
@@ -78,43 +74,33 @@ static void mostrar_pmm(uint32_t *fb, uint32_t pitch, int *cursor_y) {
     p += 8;
     copiar_str(buf, " [OK]", &p);
     buf[p] = '\0';
-    *cursor_y += 24;
-    desenhar_string(buf, 50, *cursor_y, 0x0000FF00, fb, pitch);
+    layout_write_line(buf, LAYOUT_ACCENT, cursor_y);
 
     pmm_free_block(bloco);
-    *cursor_y += 24;
-    desenhar_string("Teste liberacao: pmm_free_block executado com sucesso [OK]", 50,
-                    *cursor_y, 0x0000FF00, fb, pitch);
+    layout_write_line("Teste liberacao: pmm_free_block executado com sucesso [OK]", LAYOUT_ACCENT, cursor_y);
   } else {
-    *cursor_y += 24;
-    desenhar_string("Teste alocacao: FALHA - memoria fisica esgotada", 50,
-                    *cursor_y, 0x00FF0000, fb, pitch);
+    layout_write_line("Teste alocacao: FALHA - memoria fisica esgotada", 0x00FF0000, cursor_y);
   }
 }
 
-static void mostrar_gdt(uint32_t *fb, uint32_t pitch, int *cursor_y) {
+static void mostrar_gdt(int *cursor_y) {
   gdt_estado_t estado;
   gdt_obter_estado(&estado);
-  *cursor_y += 24;
-  desenhar_string(estado.valido ? "GDT/TSS OK - 6 entradas, limite 47" :
-                                  "GDT/TSS FALHA - conferir registradores",
-                  50, *cursor_y, estado.valido ? 0x0000FF00 : 0x00FF0000, fb, pitch);
+  layout_write_line(estado.valido ? "GDT/TSS OK - 6 entradas, limite 47" :
+                                  "GDT/TSS FALHA - conferir registradores", estado.valido ? LAYOUT_ACCENT : 0x00FF0000, cursor_y);
   char registradores[] = "CS=00000000 DS=00000000 TR=00000000";
   escrever_hex(registradores + 3, estado.cs);
   escrever_hex(registradores + 15, estado.ds);
   escrever_hex(registradores + 27, estado.tr);
-  *cursor_y += 24;
-  desenhar_string(registradores, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
+  layout_write_line(registradores, LAYOUT_TEXT, cursor_y);
   char pilha[] = "SS0=00000000 ESP0=00000000";
   escrever_hex(pilha + 4, estado.ss0);
   escrever_hex(pilha + 18, estado.esp0);
-  *cursor_y += 24;
-  desenhar_string(pilha, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
+  layout_write_line(pilha, LAYOUT_TEXT, cursor_y);
   char acesso[] = "TSS access=00000000 IOMAP=00000000";
   escrever_hex(acesso + 11, estado.tss_access);
   escrever_hex(acesso + 26, estado.iomap_base);
-  *cursor_y += 24;
-  desenhar_string(acesso, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
+  layout_write_line(acesso, LAYOUT_TEXT, cursor_y);
 }
 
 static int comando_igual(const char *linha, int len, const char *cmd) {
@@ -130,77 +116,50 @@ static int comando_igual(const char *linha, int len, const char *cmd) {
 comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
                                       uint32_t pitch, uint32_t width,
                                       int *cursor_y) {
+  (void)fb;
+  (void)pitch;
   (void)width;
   if (len == 0)
     return COMANDO_OK; // Enter sem digitar nada
 
   if (comando_igual(linha, len, "help") ||
       comando_igual(linha, len, "helpet")) {
-    *cursor_y += 24;
-    desenhar_string("------Comandos disponiveis:------", 50, *cursor_y, 0x00FFFFFF, fb,
-                    pitch);
-    *cursor_y += 24;
-    desenhar_string("help    - mostra esta lista", 50, *cursor_y, 0x00AAAAAA,
-                    fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("version - mostra a versao do sistema", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("gdt     - verifica a GDT e o TSS", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("pmm     - diagnostico do alocador de memoria fisica (PMM)", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("panic   - teste fatal; exige reinicio", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("clear   - limpa o terminal (tambem Ctrl+L)", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("exit    - sai do sistema / desliga", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("Ctrl+C  - copia a linha atual", 50, *cursor_y, 0x00AAAAAA,
-                    fb, pitch);
-    *cursor_y += 24;
-    desenhar_string("Ctrl+V  - cola o que foi copiado", 50, *cursor_y,
-                    0x00AAAAAA, fb, pitch);
+    layout_write_line("------Comandos disponiveis:------", LAYOUT_TEXT, cursor_y);
+    layout_write_line("help    - mostra esta lista", LAYOUT_MUTED, cursor_y);
+    layout_write_line("version - mostra a versao do sistema", LAYOUT_MUTED, cursor_y);
+    layout_write_line("gdt     - verifica a GDT e o TSS", LAYOUT_MUTED, cursor_y);
+    layout_write_line("pmm     - diagnostico do alocador de memoria fisica (PMM)", LAYOUT_MUTED, cursor_y);
+    layout_write_line("panic   - teste fatal; exige reinicio", LAYOUT_MUTED, cursor_y);
+    layout_write_line("clear   - limpa o terminal (tambem Ctrl+L)", LAYOUT_MUTED, cursor_y);
+    layout_write_line("exit    - sai do sistema / desliga", LAYOUT_MUTED, cursor_y);
+    layout_write_line("Ctrl+C  - copia a linha atual", LAYOUT_MUTED, cursor_y);
+    layout_write_line("Ctrl+V  - cola o que foi copiado", LAYOUT_MUTED, cursor_y);
     return COMANDO_OK;
   }
 
   /* Teste das primitivas graficas - Tarefa 17 */
-if (comando_igual(linha, len, "gfx")) {
-
-    // Teste de limites
-    gfx_draw_rect(1900, 1060, 100, 100, 0x00FFFF00);
-    gfx_put_pixel(1920, 1080, 0x00FFFFFF);
-
-    // Teste de pixel individual
-    gfx_put_pixel(400, 300, 0x000000FF);
-
-    // Teste de retangulo, linha e texto
-    gfx_draw_rect(100, 400, 250, 120, 0x0000FF00);
-    gfx_draw_line(100, 400, 350, 520, 0x00FF0000);
-    gfx_draw_char('V', 120, 420, 0x00FFFFFF);
-    gfx_draw_string("VGOS GRAPHICS OK", 120, 550, 0x0000FFFF);
-
-    *cursor_y += 24;
+  if (comando_igual(linha, len, "gfx")) {
+    layout_bounds_t area = layout_get_terminal_bounds();
+    layout_next_line(cursor_y);
+    gfx_draw_rect(area.x, *cursor_y, 3 * LAYOUT_CELL_W, LAYOUT_CELL_H, LAYOUT_MUTED);
+    gfx_draw_line(area.x, *cursor_y, area.x + 47, *cursor_y + 23, LAYOUT_ACCENT);
+    gfx_put_pixel(area.x + 47, *cursor_y, LAYOUT_TEXT);
+    gfx_draw_char('V', area.x + LAYOUT_CELL_W, *cursor_y, LAYOUT_TEXT);
+    layout_write_line("VGOS GRAPHICS OK", LAYOUT_TEXT, cursor_y);
     return COMANDO_OK;
-}
+  }
   if (comando_igual(linha, len, "version")) {
-    *cursor_y += 24;
-    desenhar_string(OS_BANNER, 50, *cursor_y, 0x00FFFFFF, fb, pitch);
+    layout_write_line(OS_BANNER, LAYOUT_TEXT, cursor_y);
     return COMANDO_OK;
   }
 
   if (comando_igual(linha, len, "gdt")) {
-    mostrar_gdt(fb, pitch, cursor_y);
+    mostrar_gdt(cursor_y);
     return COMANDO_OK;
   }
 
   if (comando_igual(linha, len, "pmm") || comando_igual(linha, len, "mem")) {
-    mostrar_pmm(fb, pitch, cursor_y);
+    mostrar_pmm(cursor_y);
     return COMANDO_OK;
   }
 

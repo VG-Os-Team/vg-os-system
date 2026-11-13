@@ -22,11 +22,11 @@ void desenhar_char(char c, int x, int y, uint32_t cor, uint32_t *fb,
 
 void desenhar_char_com_fundo(char c, int x, int y, uint32_t cor, uint32_t fundo,
                             uint32_t *fb, uint32_t pitch) {
-  const uint16_t *bitmap = font_ibm_plex[(uint8_t)c];
+  const uint16_t *bitmap = font_vgos[(uint8_t)c];
 
-  for (int row = 0; row < 24; row++) {
+  for (int row = 0; row < RENDER_CHAR_HEIGHT; row++) {
     uint16_t bits = bitmap[row];
-    for (int col = 0; col < 16; col++) {
+    for (int col = 0; col < RENDER_CHAR_WIDTH; col++) {
       if (bits & (1 << col)) {
         fb[((y + row) * pitch / 4) + (x + col)] = cor;
       } else {
@@ -42,6 +42,6 @@ void desenhar_string(const char *str, int start_x, int start_y, uint32_t cor,
   int x = start_x;
   for (int i = 0; str[i] != '\0'; i++) {
     desenhar_char(str[i], x, start_y, cor, fb, pitch);
-    x += 16;
+    x += RENDER_CHAR_WIDTH;
   }
 }

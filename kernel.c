@@ -3,7 +3,8 @@
 #include "idt.h"
 #include "isr.h"
 #include "keyboard.h"
-#include "logo.h"
+#include "layout.h"
+#include "gfx.h"
 #include "pic/pic.h"
 #include "render.h"
 #include "strutil.h"
@@ -58,37 +59,135 @@ static void sincronizar_vram_provisorio(void) {
   }
 }
 
-static void limpar_terminal(uint32_t *fb, uint32_t pitch, uint32_t width,
-                            uint32_t height, int terminal_y_inicial,
-                            int *cursor_x, int *cursor_y, int *cursor_base_x,
-                            int *linha_len) {
-  video_fill_rect(0, (uint32_t)terminal_y_inicial, width,
-                  height - (uint32_t)terminal_y_inicial, 0x00000000);
+static const char prompt[] = "root@vgos:~# ";
 
-  *cursor_y = terminal_y_inicial;
-  desenhar_string("root@vgos:~# ", 50, *cursor_y, 0x0000FF00, fb, pitch);
-  *cursor_base_x = 50 + 208;
-  *cursor_x = *cursor_base_x;
-  *linha_len = 0;
+typedef struct {
+    layout_bounds_t area;
+    int x, y, len;
+    char linha[LINHA_MAX];
+} entrada_t;
+
+static void iniciar_prompt(entrada_t *e) {
+    gfx_draw_string(prompt, e->area.x, e->y, LAYOUT_TEXT);
+    e->x = e->area.x + (sizeof(prompt) - 1) * LAYOUT_CELL_W;
+    e->len = 0;
 }
 
-static void inserir_char(char c, uint32_t *fb, uint32_t pitch, uint32_t width,
-                         uint32_t height, int *cursor_x, int *cursor_y,
-                         char *linha, int *linha_len) {
-  if (*linha_len >= LINHA_MAX - 1)
-    return;
+static void limpar_terminal(entrada_t *e) {
+    video_fill_rect(e->area.x, e->area.y, e->area.width, e->area.height, LAYOUT_BG);
+    e->y = e->area.y;
+    iniciar_prompt(e);
+}
 
-  if (*cursor_x + 16 >= (int)width - 50) {
-    if (*cursor_y + 24 < (int)height - 24) {
-      *cursor_y += 24;
-      *cursor_x = 50;
-    } else {
-      return;
+static void marcar_cursor(const entrada_t *e, uint32_t cor) {
+    video_fill_rect(e->x, e->y + LAYOUT_CELL_H - 2, LAYOUT_CELL_W, 2, cor);
+}
+
+static int inserir_char(entrada_t *e, char c) {
+    /* Mantem toda a entrada editavel visivel, inclusive a celula do cursor. */
+    int cells = (e->area.width / LAYOUT_CELL_W) * (e->area.height / LAYOUT_CELL_H);
+    if (e->len >= LINHA_MAX - 1 || e->len + (int)sizeof(prompt) >= cells)
+        return 0;
+    desenhar_char_com_fundo(c, e->x, e->y, LAYOUT_TEXT, LAYOUT_BG,
+                           video_get_draw_buffer(), video_get_draw_pitch());
+    e->linha[e->len++] = c;
+    e->x += LAYOUT_CELL_W;
+    if (e->x == e->area.x + e->area.width) {
+        e->x = e->area.x;
+        layout_next_line(&e->y);
     }
-  }
-  desenhar_char(c, *cursor_x, *cursor_y, 0x00FFFFFF, fb, pitch);
-  *cursor_x += 16;
-  linha[(*linha_len)++] = c;
+    return 1;
+}
+
+static int apagar_char(entrada_t *e) {
+    if (!e->len)
+        return 0;
+    marcar_cursor(e, LAYOUT_BG);
+    if (e->x == e->area.x) {
+        e->x += e->area.width;
+        e->y -= LAYOUT_CELL_H;
+    }
+    e->x -= LAYOUT_CELL_W;
+    e->len--;
+    video_fill_rect(e->x, e->y, LAYOUT_CELL_W, LAYOUT_CELL_H, LAYOUT_BG);
+    return 1;
+}
+
+static void executar_terminal(uint32_t width) {
+    layout_draw();
+    entrada_t entrada = { .area = layout_get_terminal_bounds() };
+    if (!entrada.area.width)
+        kernel_panic("Resolucao insuficiente para o terminal.", 0);
+    entrada.y = entrada.area.y;
+    iniciar_prompt(&entrada);
+    marcar_cursor(&entrada, LAYOUT_ACCENT);
+    sincronizar_vram_provisorio();
+
+    char clipboard[LINHA_MAX];
+    int clipboard_len = 0;
+    while (1) {
+        int tecla = teclado_ler();
+        if (tecla == TECLA_NENHUMA) {
+            asm volatile("pause");
+            continue;
+        }
+
+        switch (tecla) {
+        case TECLA_CTRL_L:
+            limpar_terminal(&entrada);
+            break;
+        case TECLA_CTRL_C:
+            for (int i = 0; i < entrada.len; i++)
+                clipboard[i] = entrada.linha[i];
+            clipboard_len = entrada.len;
+            continue;
+        case TECLA_CTRL_V: {
+            int i = 0;
+            while (i < clipboard_len && inserir_char(&entrada, clipboard[i]))
+                i++;
+            if (!i)
+                continue;
+            break;
+        }
+        case '\b':
+            if (!apagar_char(&entrada))
+                continue;
+            break;
+        case '\n': {
+            marcar_cursor(&entrada, LAYOUT_BG);
+            /* O cursor ja quebrou para a proxima linha ao preencher a anterior. */
+            if (entrada.x == entrada.area.x)
+                entrada.y -= LAYOUT_CELL_H;
+            comando_resultado_t r = comandos_executar(
+                entrada.linha, entrada.len, video_get_draw_buffer(),
+                video_get_draw_pitch(), width, &entrada.y);
+            if (r == COMANDO_LIMPAR) {
+                limpar_terminal(&entrada);
+            } else if (r == COMANDO_EXIT) {
+                layout_write_line("Desligando o VG-OS...", LAYOUT_TEXT, &entrada.y);
+                sincronizar_vram_provisorio();
+                outw(0x604, 0x2000);
+                outw(0xB004, 0x2000);
+                outw(0x4004, 0x3400);
+                layout_write_line("Sistema finalizado. Pode desligar o computador com seguranca.",
+                                  LAYOUT_MUTED, &entrada.y);
+                sincronizar_vram_provisorio();
+                asm volatile("cli");
+                while (1)
+                    asm volatile("hlt");
+            } else {
+                layout_next_line(&entrada.y);
+                iniciar_prompt(&entrada);
+            }
+            break;
+        }
+        default:
+            if (tecla < 0 || !inserir_char(&entrada, (char)tecla))
+                continue;
+        }
+        marcar_cursor(&entrada, LAYOUT_ACCENT);
+        sincronizar_vram_provisorio();
+    }
 }
 
 void kernel_main(multiboot_info_t *mbd) {
@@ -136,195 +235,5 @@ void kernel_main(multiboot_info_t *mbd) {
   if (vstatus != VIDEO_OK)
     kernel_panic(video_status_str(vstatus), 0);
 
-  // Direciona todas as operacoes de desenho para o backbuffer secundario na RAM
-  fb    = video_get_draw_buffer();
-  pitch = video_get_draw_pitch();
-
-  // Limpa o backbuffer inteiro com fundo preto via driver de vídeo
-  video_clear(0x00000000);
-
-  // Letras VGOS em blocos grandes
-  static const uint16_t letra_V[] = {
-    0xC03, 0xC03, 0xC03, 0x606, 0x606, 0x30C,
-    0x30C, 0x198, 0x198, 0x0F0, 0x060, 0x060
-  };
-  static const uint16_t letra_G[] = {
-    0x3FC, 0x7FE, 0xE07, 0x003, 0x003, 0xFE3,
-    0xC03, 0xC03, 0xE07, 0x7FE, 0x3FC, 0x000
-  };
-  static const uint16_t letra_O[] = {
-    0x3FC, 0x7FE, 0xE07, 0xC03, 0xC03, 0xC03,
-    0xC03, 0xC03, 0xE07, 0x7FE, 0x3FC, 0x000
-  };
-  static const uint16_t letra_S[] = {
-    0x3FC, 0x7FE, 0xE07, 0x003, 0x01E, 0x0FC,
-    0x3C0, 0x780, 0xE07, 0x7FE, 0x3FC, 0x000
-  };
-
-  int blk_w = 6, blk_h = 8;
-  int lcols = 12, lrows = 12;
-  int let_w = lcols * blk_w;   // 72px por letra
-  int let_h = lrows * blk_h;   // 96px de altura
-  int let_gap = 12;            // espaço entre letras
-
-  // Centralizar logo + VGOS juntos na tela
-  int art_total_w = let_w * 4 + let_gap * 3;  // 324px de texto
-  int header_gap = 50;                        // espaço entre logo e texto
-  int total_header_w = (int)logo_width + header_gap + art_total_w;
-  int start_x = ((int)width - total_header_w) / 2;
-  if (start_x < 20)
-    start_x = 20;
-
-  int logo_x = start_x;
-  int logo_y = 20;
-  desenhar_logo(fb, pitch, logo_x, logo_y);
-
-  int art_x = logo_x + (int)logo_width + header_gap;
-  int art_y = logo_y + ((int)logo_height - let_h) / 2;
-
-  // Renderizar as 4 letras em verde escuro usando o driver de vídeo
-  uint32_t cor_vgos = 0x00228B22;
-  const uint16_t *letras[] = {letra_V, letra_G, letra_O, letra_S};
-  for (int li = 0; li < 4; li++) {
-    int lx = art_x + li * (let_w + let_gap);
-    for (int r = 0; r < lrows; r++) {
-      uint16_t bits = letras[li][r];
-      for (int c = 0; c < lcols; c++) {
-        if (bits & (1 << c)) {
-          int bx = lx + c * blk_w;
-          int by = art_y + r * blk_h;
-          video_fill_rect((uint32_t)bx, (uint32_t)by, (uint32_t)blk_w,
-                          (uint32_t)blk_h, cor_vgos);
-        }
-      }
-    }
-  }
-
-  // Linha separadora subtil
-  int margin = 50;
-  int sep_y = logo_y + (int)logo_height + 15;
-  for (uint32_t sx = (uint32_t)margin; sx < width - (uint32_t)margin; sx++)
-    video_put_pixel(sx, (uint32_t)sep_y, 0x00333333);
-
-  // Terminal abaixo da linha separadora
-  int text_y = sep_y + 15;
-  desenhar_string("root@vgos:~# ", 50, text_y, 0x0000FF00, fb, pitch);
-
-  int terminal_y_inicial = text_y;
-
-  char linha_atual[LINHA_MAX];
-  int linha_len = 0;
-
-  char clipboard[LINHA_MAX];
-  int clipboard_len = 0;
-
-  int cursor_base_x = 50 + 208;
-  int cursor_x = cursor_base_x;
-  int cursor_y = text_y;
-
-  // Apresenta o quadro inicial completo na VRAM de uma unica vez (sem flicker)
-  sincronizar_vram_provisorio();
-
-  // O Loop do Terminal
-  while (1) {
-    int tecla = teclado_ler();
-    if (tecla == TECLA_NENHUMA) {
-      asm volatile("pause");
-      continue;
-    }
-
-    int atualizar_tela = 0;
-
-    switch (tecla) {
-    case TECLA_CTRL_L:
-      limpar_terminal(fb, pitch, width, height, terminal_y_inicial, &cursor_x,
-                      &cursor_y, &cursor_base_x, &linha_len);
-      atualizar_tela = 1;
-      break;
-
-    case TECLA_CTRL_C:
-      for (int i = 0; i < linha_len; i++)
-        clipboard[i] = linha_atual[i];
-      clipboard_len = linha_len;
-      break;
-
-    case TECLA_CTRL_V:
-      for (int i = 0; i < clipboard_len; i++)
-        inserir_char(clipboard[i], fb, pitch, width, height, &cursor_x,
-                     &cursor_y, linha_atual, &linha_len);
-      if (clipboard_len > 0)
-        atualizar_tela = 1;
-      break;
-
-    default: {
-      if (tecla < 0) {
-        break;
-      }
-      char c = (char)tecla;
-      if (c == '\b') {
-        if (linha_len > 0) {
-          int min_x = (cursor_y == terminal_y_inicial) ? cursor_base_x : 50;
-          if (cursor_x > min_x) {
-            cursor_x -= 16;
-            desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
-            linha_len--;
-            atualizar_tela = 1;
-          } else if (cursor_y > terminal_y_inicial) {
-            cursor_y -= 24;
-            int chars_por_linha = (width - 100) / 16;
-            cursor_x = 50 + (chars_por_linha - 1) * 16;
-            desenhar_char(' ', cursor_x, cursor_y, 0x00FFFFFF, fb, pitch);
-            linha_len--;
-            atualizar_tela = 1;
-          }
-        }
-      } else if (c == '\n') {
-        comando_resultado_t r = comandos_executar(linha_atual, linha_len, fb,
-                                                  pitch, width, &cursor_y);
-
-        if (r == COMANDO_LIMPAR) {
-          limpar_terminal(fb, pitch, width, height, terminal_y_inicial,
-                          &cursor_x, &cursor_y, &cursor_base_x, &linha_len);
-          atualizar_tela = 1;
-        } else if (r == COMANDO_EXIT) {
-          if (cursor_y + 24 < (int)height - 24)
-            cursor_y += 24;
-          desenhar_string("Desligando o VG-OS...", 50, cursor_y, 0x00FFFF00, fb, pitch);
-          sincronizar_vram_provisorio();
-
-          outw(0x604, 0x2000);   // QEMU ACPI shutdown
-          outw(0xB004, 0x2000);  // Bochs / QEMU legado
-          outw(0x4004, 0x3400);  // VirtualBox
-
-          if (cursor_y + 24 < (int)height - 24)
-            cursor_y += 24;
-          desenhar_string("Sistema finalizado. Pode desligar o computador com seguranca.",
-                          50, cursor_y, 0x00AAAAAA, fb, pitch);
-          sincronizar_vram_provisorio();
-          asm volatile("cli");
-          while (1) {
-            asm volatile("hlt");
-          }
-        } else {
-          if (cursor_y + 24 < (int)height - 24) {
-            cursor_y += 24;
-          }
-          desenhar_string("root@vgos:~# ", 50, cursor_y, 0x0000FF00, fb, pitch);
-          cursor_base_x = 50 + 208;
-          cursor_x = cursor_base_x;
-          linha_len = 0;
-          atualizar_tela = 1;
-        }
-      } else {
-        inserir_char(c, fb, pitch, width, height, &cursor_x, &cursor_y,
-                     linha_atual, &linha_len);
-        atualizar_tela = 1;
-      }
-      break;
-    }
-    }
-
-    if (atualizar_tela)
-      sincronizar_vram_provisorio();
-  }
+  executar_terminal(width);
 }

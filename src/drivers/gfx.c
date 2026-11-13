@@ -2,6 +2,7 @@
 #include "../../include/gfx.h"
 #include "../../include/video.h"
 #include "../../Render/font.h"
+#include "../../Render/render.h"
 #include <stddef.h>
 
 /* Inicializa o modulo grafico */
@@ -60,17 +61,17 @@ void gfx_draw_line(int x0, int y0, int x1, int y1,
     }
 }
 
-/* Desenha um caractere usando a fonte bitmap 16x24 */
+/* Desenha um caractere usando a fonte bitmap 12x24 */
 void gfx_draw_char(char c, uint32_t x, uint32_t y,
                    uint32_t color) {
 
     unsigned char index = (unsigned char)c;
 
-    for (uint32_t row = 0; row < 24; row++) {
+    for (uint32_t row = 0; row < RENDER_CHAR_HEIGHT; row++) {
 
-        uint16_t bits = font_ibm_plex[index][row];
+        uint16_t bits = font_vgos[index][row];
 
-        for (uint32_t col = 0; col < 16; col++) {
+        for (uint32_t col = 0; col < RENDER_CHAR_WIDTH; col++) {
 
             if (bits & (1U << col)) {
                 gfx_put_pixel(x + col, y + row, color);
@@ -92,7 +93,7 @@ void gfx_draw_string(const char *str, uint32_t x, uint32_t y,
 
         if (*str == '\n') {
             x = start_x;
-            y += 24;
+            y += RENDER_CHAR_HEIGHT;
             str++;
             continue;
         }
@@ -105,7 +106,7 @@ void gfx_draw_string(const char *str, uint32_t x, uint32_t y,
 
         gfx_draw_char(*str, x, y, color);
 
-        x += 16;
+        x += RENDER_CHAR_WIDTH;
         str++;
     }
 }
