@@ -59,6 +59,14 @@ video_status_t video_init_backbuffer(void);
 /* Libera o backbuffer da RAM via kfree e restaura o desenho para a VRAM */
 void video_free_backbuffer(void);
 
+/*
+ * Copia o quadro completo do backbuffer na RAM para a VRAM usando palavras
+ * de 32 bits (Tarefa 19). Respeita os pitches e preserva o padding da VRAM.
+ * Chamar apos concluir o desenho; nao aloca nem troca os buffers.
+ * Sem efeito antes da inicializacao ou sem double buffering ativo.
+ */
+void render_flush(void);
+
 /* Retorna ponteiro somente-leitura para as informacoes atuais do video */
 const video_info_t *video_get_info(void);
 

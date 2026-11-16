@@ -7,6 +7,15 @@ static video_info_t g_video_info;
 static int g_video_initialized = 0;
 static int g_double_buffering_enabled = 0;
 
+/* Copia count palavras de 32 bits, sem depender da libc do hospedeiro. */
+static inline void video_memcpy32(uint32_t *dst, const uint32_t *src,
+                                  uint32_t count) {
+    __asm__ volatile("cld; rep movsl"
+                     : "+D"(dst), "+S"(src), "+c"(count)
+                     :
+                     : "memory", "cc");
+}
+
 video_status_t video_init(const multiboot_info_t *mbd) {
     if (mbd == NULL)
         return VIDEO_ERR_NULL_MBD;
@@ -112,6 +121,33 @@ void video_free_backbuffer(void) {
     g_video_info.backbuffer_pitch = 0;
     g_video_info.backbuffer_size  = 0;
     g_double_buffering_enabled    = 0;
+}
+
+/* Tarefa 19: apresenta na VRAM o quadro completo desenhado na RAM. */
+void render_flush(void) {
+    if (!g_video_initialized || !video_is_double_buffered())
+        return;
+
+    const uint32_t *src = g_video_info.backbuffer;
+    uint32_t *dst = g_video_info.vram;
+    if (dst == NULL || src == dst)
+        return;
+
+    /* Sem padding entre linhas, todo o quadro cabe em uma unica copia. */
+    if (g_video_info.pitch == g_video_info.backbuffer_pitch) {
+        video_memcpy32(dst, src,
+                       g_video_info.backbuffer_size / VIDEO_BYTES_PER_PIXEL);
+        return;
+    }
+
+    /* A VRAM pode ter padding; a RAM armazena somente os pixels visiveis. */
+    uint32_t src_stride = g_video_info.backbuffer_pitch / VIDEO_BYTES_PER_PIXEL;
+    uint32_t dst_stride = g_video_info.pitch / VIDEO_BYTES_PER_PIXEL;
+    for (uint32_t y = 0; y < g_video_info.height; y++) {
+        video_memcpy32(dst, src, g_video_info.width);
+        src += src_stride;
+        dst += dst_stride;
+    }
 }
 
 const video_info_t *video_get_info(void) {
