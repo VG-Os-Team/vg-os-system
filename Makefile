@@ -124,7 +124,17 @@ run: iso
 clean:
 	rm -rf $(BUILD_DIR) $(ISO) iso_root/boot/*.bin
 
+# Teste nativo Linux x86_64: buffers protegidos por paginas de guarda.
+HOST_CC ?= cc
+$(BUILD_DIR)/tests/render_flush: tests/render_flush_test.c src/drivers/video.c include/video.h include/heap.h include/multiboot.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude \
+		tests/render_flush_test.c src/drivers/video.c -o $@
+
+test-video: $(BUILD_DIR)/tests/render_flush
+	./$(BUILD_DIR)/tests/render_flush
+
 # Inclui os arquivos de dependencias gerados dinamicamente
 -include $(DEPS)
 
-.PHONY: all iso run clean
+.PHONY: all iso run clean test-video

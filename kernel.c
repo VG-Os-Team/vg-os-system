@@ -25,40 +25,6 @@ static inline void outw(uint16_t port, uint16_t val) {
   asm volatile("outw %0, %1" : : "a"(val), "Nd"(port));
 }
 
-// Copia provisoria do backbuffer (RAM) para a VRAM fisica ate a criacao
-// de render_flush() na Tarefa 19, mantendo o terminal visivel e sem flicker.
-static void sincronizar_vram_provisorio(void) {
-  const uint32_t *src = video_get_backbuffer();
-  uint32_t *dst = video_get_framebuffer();
-  if (!src || !dst || src == dst)
-    return;
-
-  uint32_t width = video_get_width();
-  uint32_t height = video_get_height();
-  uint32_t src_pitch = video_get_backbuffer_pitch();
-  uint32_t dst_pitch = video_get_pitch();
-
-  if (src_pitch == dst_pitch && src_pitch == width * 4U) {
-    uint32_t total_pixels = width * height;
-    asm volatile("cld; rep movsl"
-                 : "+S"(src), "+D"(dst), "+c"(total_pixels)
-                 :
-                 : "memory", "cc");
-    return;
-  }
-
-  for (uint32_t y = 0; y < height; y++) {
-    const uint32_t *linha_src =
-        (const uint32_t *)((const uint8_t *)src + y * src_pitch);
-    uint32_t *linha_dst = (uint32_t *)((uint8_t *)dst + y * dst_pitch);
-    uint32_t cols = width;
-    asm volatile("cld; rep movsl"
-                 : "+S"(linha_src), "+D"(linha_dst), "+c"(cols)
-                 :
-                 : "memory", "cc");
-  }
-}
-
 static const char prompt[] = "root@vgos:~# ";
 
 typedef struct {
@@ -121,7 +87,7 @@ static void executar_terminal(uint32_t width) {
     entrada.y = entrada.area.y;
     iniciar_prompt(&entrada);
     marcar_cursor(&entrada, LAYOUT_ACCENT);
-    sincronizar_vram_provisorio();
+    render_flush();
 
     char clipboard[LINHA_MAX];
     int clipboard_len = 0;
@@ -165,13 +131,13 @@ static void executar_terminal(uint32_t width) {
                 limpar_terminal(&entrada);
             } else if (r == COMANDO_EXIT) {
                 layout_write_line("Desligando o VG-OS...", LAYOUT_TEXT, &entrada.y);
-                sincronizar_vram_provisorio();
+                render_flush();
                 outw(0x604, 0x2000);
                 outw(0xB004, 0x2000);
                 outw(0x4004, 0x3400);
                 layout_write_line("Sistema finalizado. Pode desligar o computador com seguranca.",
                                   LAYOUT_MUTED, &entrada.y);
-                sincronizar_vram_provisorio();
+                render_flush();
                 asm volatile("cli");
                 while (1)
                     asm volatile("hlt");
@@ -186,7 +152,7 @@ static void executar_terminal(uint32_t width) {
                 continue;
         }
         marcar_cursor(&entrada, LAYOUT_ACCENT);
-        sincronizar_vram_provisorio();
+        render_flush();
     }
 }
 
