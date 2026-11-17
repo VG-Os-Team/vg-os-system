@@ -30,4 +30,16 @@ void pic_send_eoi(uint8_t irq);
  */
 int pic_irq_espuria(uint8_t irq);
 
+/*
+ * Habilita (desmascara) a linha de IRQ (0-15) no PIC correspondente.
+ * Para IRQs 8-15 no escravo, garante tambem que a linha de cascata IRQ2 no
+ * mestre esteja desmascarada.
+ */
+void pic_unmask_irq(uint8_t irq);
+
+/*
+ * Desabilita (mascara) a linha de IRQ (0-15) no PIC correspondente.
+ */
+void pic_mask_irq(uint8_t irq);
+
 #endif

@@ -1,5 +1,12 @@
 #include "keyboard.h"
+#include "isr.h"
+#include "pic/pic.h"
 #include <stdint.h>
+
+#define KBD_PORT_DATA   0x60
+#define KBD_PORT_STATUS 0x64
+#define KBD_IRQ         1
+#define KBD_BUFFER_SIZE 64
 
 static inline uint8_t inb(uint16_t port) {
   uint8_t ret;
@@ -64,6 +71,10 @@ static char ctrl_pressionado = 0;
 static int e0_prefix = 0;
 static int acento_pendente = ACENTO_NENHUM;
 
+static int kbd_buffer[KBD_BUFFER_SIZE];
+static volatile uint32_t kbd_head = 0;
+static volatile uint32_t kbd_tail = 0;
+
 static char aplica_case(char c) {
   int maiuscula_pedida = shift_pressionado ^ capslock_ativo;
   if (c >= 'a' && c <= 'z')
@@ -124,11 +135,7 @@ static char combina_acento(char c, int acento) {
   return c;
 }
 
-int teclado_ler(void) {
-  if (!(inb(0x64) & 1))
-    return TECLA_NENHUMA;
-
-  uint8_t scancode = inb(0x60);
+static int teclado_processar_scancode(uint8_t scancode) {
 
   // Prefix E0 (teclas estendidas)
   if (scancode == 0xE0) {
@@ -269,4 +276,46 @@ int teclado_ler(void) {
   }
 
   return (int)(unsigned char)c;
+}
+
+static void teclado_irq_handler(registers_t *regs) {
+  (void)regs;
+  uint8_t scancode = inb(KBD_PORT_DATA);
+  int tecla = teclado_processar_scancode(scancode);
+  if (tecla == TECLA_NENHUMA)
+    return;
+
+  uint32_t next = (kbd_head + 1U) % KBD_BUFFER_SIZE;
+  if (next != kbd_tail) {
+    kbd_buffer[kbd_head] = tecla;
+    kbd_head = next;
+  }
+}
+
+void teclado_init(void) {
+  while (inb(KBD_PORT_STATUS) & 1)
+    (void)inb(KBD_PORT_DATA);
+
+  kbd_head = 0;
+  kbd_tail = 0;
+  irq_register_handler(KBD_IRQ, teclado_irq_handler);
+  pic_unmask_irq(KBD_IRQ);
+}
+
+int teclado_ler(void) {
+  if (kbd_head == kbd_tail)
+    return TECLA_NENHUMA;
+
+  int tecla = kbd_buffer[kbd_tail];
+  kbd_tail = (kbd_tail + 1U) % KBD_BUFFER_SIZE;
+  return tecla;
+}
+
+void teclado_aguardar(void) {
+  asm volatile("cli" ::: "memory");
+  if (kbd_head == kbd_tail) {
+    asm volatile("sti; hlt" ::: "memory");
+  } else {
+    asm volatile("sti" ::: "memory");
+  }
 }

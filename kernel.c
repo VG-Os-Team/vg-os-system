@@ -95,7 +95,7 @@ static void executar_terminal(uint32_t width) {
     while (1) {
         int tecla = teclado_ler();
         if (tecla == TECLA_NENHUMA) {
-            asm volatile("pause");
+            teclado_aguardar();
             continue;
         }
 
@@ -212,6 +212,9 @@ void kernel_main(multiboot_info_t *mbd) {
   splash_show(width, height);
   splash_progress(width, height, 100U, "Sistema pronto!");
   splash_finish();
+
+  teclado_init();
+  asm volatile("sti" ::: "memory");
 
   executar_terminal(width);
 }

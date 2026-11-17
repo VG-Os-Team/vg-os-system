@@ -112,3 +112,31 @@ int pic_irq_espuria(uint8_t irq) {
 
     return 0;
 }
+
+void pic_unmask_irq(uint8_t irq) {
+    if (irq >= 16)
+        return;
+
+    if (irq < 8) {
+        uint8_t mask = inb(PIC_MASTER_DATA);
+        outb(PIC_MASTER_DATA, (uint8_t)(mask & ~(1u << irq)));
+    } else {
+        uint8_t master_mask = inb(PIC_MASTER_DATA);
+        outb(PIC_MASTER_DATA, (uint8_t)(master_mask & ~(1u << 2)));
+        uint8_t slave_mask = inb(PIC_SLAVE_DATA);
+        outb(PIC_SLAVE_DATA, (uint8_t)(slave_mask & ~(1u << (irq - 8))));
+    }
+}
+
+void pic_mask_irq(uint8_t irq) {
+    if (irq >= 16)
+        return;
+
+    if (irq < 8) {
+        uint8_t mask = inb(PIC_MASTER_DATA);
+        outb(PIC_MASTER_DATA, (uint8_t)(mask | (1u << irq)));
+    } else {
+        uint8_t slave_mask = inb(PIC_SLAVE_DATA);
+        outb(PIC_SLAVE_DATA, (uint8_t)(slave_mask | (1u << (irq - 8))));
+    }
+}

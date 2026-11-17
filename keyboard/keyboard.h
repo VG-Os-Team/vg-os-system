@@ -15,10 +15,17 @@
 #define TECLA_HOME -15
 #define TECLA_END -16
 
-// Retorna o caractere correspondente ao scancode, já considerando
-// shift/capslock. Retorna 0 se for tecla sem caractere (ex: F1) ou
-// scancode de "solta tecla" tratado internamente.
+// Inicializa o driver de teclado PS/2 via IRQ1 (registra handler e desmascara no PIC).
+void teclado_init(void);
+
+// Retorna o caractere correspondente ao proximo evento na fila do teclado, ja
+// considerando shift/capslock. Retorna 0 se a fila estiver vazia ou se a tecla
+// nao gerar caractere.
 // Retorna: 0 = nada, >0 = código ASCII do caractere, <0 = comando especial
 int teclado_ler(void);
+
+// Coloca a CPU em repouso (hlt) de forma segura ate a proxima interrupcao caso
+// a fila do teclado esteja vazia.
+void teclado_aguardar(void);
 
 #endif
