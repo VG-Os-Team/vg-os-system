@@ -12,29 +12,30 @@
 Um sistema operacional x86 de 32 bits desenvolvido do zero para fins acadêmicos e de aprendizado em baixo nível. O sistema conta com inicialização via Multiboot/GRUB, kernel próprio em Modo Protegido e um terminal gráfico interativo com renderização direta em Framebuffer linear.
 ---
 ## 📋 Funcionalidades Principais
-* **Kernel Próprio (Modo Protegido 32-bit):** Escrito em C e Assembly x86 com gerenciamento manual de memória e periféricos.
-* **GDT e TSS:** GDT com 6 descritores, segmentos flat de kernel/usuario e TSS de 32 bits carregado por `LTR`. Pilha de kernel reservada para futuras transicoes de privilegio. Essa etapa nao implementa processos, escalonamento ou isolamento de memoria por paginacao.
-* **Kernel panic:** Tela de erro fatal com mensagem, registradores salvos na excecao e parada em `CLI`/`HLT`. Integrada aos 32 tratadores de excecao. O comando `panic` provoca `UD2` para demonstracao e exige reiniciar a maquina virtual.
-* **Bootloader Multiboot (GRUB):** Configuração nativa de vídeo via cabeçalho Multiboot, inicializando o modo gráfico diretamente no boot.
-* **Saída Gráfica em Framebuffer Linear (VESA):**
-  - Renderização direta pixel a pixel sem depender de interrupções da BIOS em modo real.
-  - Exibição de imagem/logotipo customizado em alta resolução.
-  - Renderizador de texto com fonte bitmap escalonada (2x).
-* **Driver de Teclado PS/2 Completo:**
-  - Suporte ao padrão **ABNT2 brasileiro** (incluindo `ç` / `Ç` e `/ ?`).
-  - Suporte a scancodes estendidos (`0xE0`), como setas direcionais, Delete, Home, End e Ctrl Direito.
-  - Suporte a atalhos de teclado: `Ctrl+L` (limpar tela), `Ctrl+C` (copiar linha) e `Ctrl+V` (colar).
-  - Tratamento de repetição de teclas (*key repeat*) e Caps Lock.
-* **Gerenciador de Memória Física (PMM - 4KB Bitmap):**
-  - Alocador de páginas físicas de 4KB baseado em array de bitmap (`pmm_alloc_block`, `pmm_free_block`).
-  - Rotinas para marcar páginas como livres/ocupadas (`pmm_set_block`, `pmm_unset_block`, `pmm_test_block`).
-  - Inicialização automática via mapa de memória física obtido do Multiboot (`multiboot_mmap`).
-  - Proteção de regiões críticas: baixa memória (primeiro 1MB), código/dados/BSS do kernel, framebuffer VESA e estruturas do Multiboot.
+* **Kernel Próprio (Modo Protegido 32-bit):** Escrito em C e Assembly x86 com gerenciamento manual de memória, interrupções e periféricos.
+* **GDT, IDT, PIC e TSS:** GDT com 6 descritores, TSS de 32 bits carregado por `LTR`, IDT com 32 exceções da CPU e 16 linhas de IRQ via PIC 8259A remapeado (com detecção de IRQs espúrias e controle individual de máscara).
+* **Kernel Panic:** Tela de erro fatal com mensagem, registradores salvos na exceção e parada em `CLI`/`HLT`, integrada aos 32 tratadores de exceção. O comando `panic` provoca `UD2` para demonstração.
+* **Bootloader Multiboot (GRUB):** Seleção de resolução no menu de boot (`1920×1080`, `1440×1080`, `1024×768`) inicializando o modo gráfico VESA diretamente no boot.
+* **Tela de Carregamento (Splash Screen):** Exibição da logo oficial do VG OS, versão (`OS_BANNER`) e barra de progresso acompanhando as etapas reais de inicialização do kernel.
+* **Saída Gráfica em Framebuffer Linear (VESA), Double Buffering & Primitivas:**
+  - Alocação de *backbuffer* na RAM (`video_init_backbuffer`) e cópia otimizada em 32 bits (`rep movsl`) para a VRAM via `render_flush()`, preservando *padding* de *pitch*.
+  - Primitivas gráficas de desenho (`gfx.c`): pixels, retângulos, linhas e strings com fonte bitmap escalonada (2x).
+  - Layout gráfico modular (`src/ui/layout.c`) com cabeçalho, janela de terminal com rolagem e rodapé responsivo exibindo status do backbuffer e atalhos.
+* **Driver de Teclado PS/2 por Interrupção (IRQ1):**
+  - Handler registrado na **IRQ1** lendo scancodes (Set 1) da porta `0x60` e enfileirando em buffer circular, com espera de baixo consumo (`sti; hlt`).
+  - Suporte ao padrão **ABNT2 brasileiro** (incluindo `ç` / `Ç`, `/ ?` e *dead keys* de acentuação `´`, `` ` ``, `~`, `^`).
+  - Suporte a scancodes estendidos (`0xE0`: setas direcionais, Delete, Home, End, Ctrl Direito) e atalhos (`Ctrl+L`, `Ctrl+C`, `Ctrl+V`).
+  - Tratamento de Shift, Caps Lock, Enter, Backspace e repetição de teclas.
+* **Gerenciamento de Memória (PMM, Paginação x86 e Heap):**
+  - **PMM (4KB Bitmap):** Alocador de páginas físicas inicializado pelo mapa de memória Multiboot, protegendo baixa memória, kernel, framebuffer e estruturas do Multiboot.
+  - **Paginação x86:** *Identity map* do kernel e da VRAM do framebuffer.
+  - **Heap Dinâmico:** Alocador `kmalloc` / `kfree` construído sobre páginas fornecidas pelo PMM.
 * **Terminal Interativo Integrado:**
-  - Comandos embutidos: `help`, `version`, `clear`, `exit`, `gdt` (diagnostico de GDT/TSS), `pmm` (diagnostico do alocador de memoria fisica), `panic` (teste fatal).
-  - Tratamento de quebra automática de linha (*line wrap*) e Backspace multilinha.
-* **Arquitetura Modular:**
+  - Comandos embutidos: `help`, `info` (exibe logo e métricas de sistema, vídeo, RAM e Heap), `version`, `clear`, `exit`, `gdt`, `pmm`, `panic`.
+  - Quebra automática de linha (*line wrap*), rolagem e Backspace multilinha.
+* **Arquitetura Modular & Testes:**
   - Centralização de versão do sistema (`version.h`).
+  - Testes nativos isolados para o driver de vídeo (`make test-video` em `tests/render_flush_test.c`).
   - Saída de compilação isolada no diretório `build/`.
 ---
 ## 🛠️ Tecnologias e Ferramentas
@@ -77,13 +78,14 @@ vg-os-system/
 ├── gdt/            # Global Descriptor Table e TSS (gdt.c, gdt.h, gdt_asm.s, tss.c, tss.h)
 ├── idt/            # Interrupt Descriptor Table (idt.c, idt.h, idt_asm.s)
 ├── images/         # Recursos gráficos e logotipo em matriz de pixels (images/logo/)
-├── include/        # Cabeçalhos centralizados de sistema e diagnóstico (panic.h)
+├── include/        # Cabeçalhos centralizados (video.h, gfx.h, layout.h, splash.h, pmm.h, paging.h, heap.h, panic.h, idt.h, multiboot.h)
 ├── iso_root/       # Estrutura base de diretórios utilizada pelo grub-mkrescue
 ├── isr/            # Tratadores de interrupções e exceções da CPU (isr.c, isr.h, interrupts.s)
-├── keyboard/       # Driver do controlador de teclado PS/2 e scancodes ABNT2 (keyboard.c, keyboard.h)
-├── pic/            # Remapeamento e controle do chip 8259 PIC (pic.c, pic.h)
-├── Render/         # Subsistema de vídeo em Framebuffer linear e fonte bitmap (render.c, render.h, font.h)
-├── src/            # Módulos organizados por arquitetura (src/arch/x86/panic.c)
+├── keyboard/       # Driver do teclado PS/2 via IRQ1 e scancodes ABNT2 (keyboard.c, keyboard.h)
+├── pic/            # Remapeamento, EOI e máscara do controlador 8259 PIC (pic.c, pic.h)
+├── Render/         # Renderização de texto em fonte bitmap e logotipo (render.c, render.h, font.h)
+├── src/            # Subsistemas organizados: arch/x86/ (idt, panic), drivers/ (video, gfx), mm/ (pmm, paging, heap) e ui/ (layout, splash)
+├── tests/          # Testes nativos isolados (render_flush_test.c via make test-video)
 ├── build/          # Binários (.bin) e arquivos objeto (.o) gerados na compilação
 ├── kernel.c        # Ponto de entrada do kernel (kernel_main) e ciclo principal
 ├── linker.ld       # Script do Linker definindo o layout de memória física
