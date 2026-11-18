@@ -24,6 +24,7 @@ BIN      = $(BUILD_DIR)/meuos.bin
 C_SRCS = \
     src/ui/layout.c \
     src/ui/splash.c \
+    src/shell/shell.c \
     kernel.c \
     strutil.c \
     comandos/comandos.c \
