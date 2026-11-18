@@ -1,12 +1,12 @@
-#include "keyboard.h"
+#include "../../include/keyboard.h"
 #include "isr.h"
 #include "pic/pic.h"
 #include <stdint.h>
+#include <stddef.h>
 
 #define KBD_PORT_DATA   0x60
 #define KBD_PORT_STATUS 0x64
 #define KBD_IRQ         1
-#define KBD_BUFFER_SIZE 64
 
 static inline uint8_t inb(uint16_t port) {
   uint8_t ret;
@@ -39,17 +39,17 @@ static const char kbd_ABNT2_shift[128] = {
     0,    0,    0,    0,   0,    0,   0,   0,   0,   0,   0,   0,   0,
     0,    0,    '?',  0,   0,    0,   0,   0,   0,   0,   0};
 
-#define SC_SHIFT_L 0x2A
-#define SC_SHIFT_R 0x36
-#define SC_SHIFT_L_UP 0xAA
-#define SC_SHIFT_R_UP 0xB6
-#define SC_CAPSLOCK 0x3A
+#define SC_SHIFT_L     0x2A
+#define SC_SHIFT_R     0x36
+#define SC_SHIFT_L_UP  0xAA
+#define SC_SHIFT_R_UP  0xB6
+#define SC_CAPSLOCK    0x3A
 #define SC_CAPSLOCK_UP 0xBA
-#define SC_CTRL_L 0x1D
-#define SC_CTRL_L_UP 0x9D
-#define SC_L 0x26
-#define SC_C 0x2E
-#define SC_V 0x2F
+#define SC_CTRL_L      0x1D
+#define SC_CTRL_L_UP   0x9D
+#define SC_L           0x26
+#define SC_C           0x2E
+#define SC_V           0x2F
 
 #define SC_ACENTO_AGUDO_CRASE 0x1A
 #define SC_TIL_CIRCUNFLEXO    0x28
@@ -64,16 +64,115 @@ enum {
   ACENTO_CIRCUNFLEXO  // ^
 };
 
-static int shift_pressionado = 0;
-static int capslock_ativo = 0;
-static int capslock_pressionado = 0;
-static char ctrl_pressionado = 0;
-static int e0_prefix = 0;
-static int acento_pendente = ACENTO_NENHUM;
+static int  shift_pressionado    = 0;
+static int  capslock_ativo       = 0;
+static int  capslock_pressionado = 0;
+static char ctrl_pressionado     = 0;
+static int  e0_prefix            = 0;
+static int  acento_pendente      = ACENTO_NENHUM;
 
-static int kbd_buffer[KBD_BUFFER_SIZE];
-static volatile uint32_t kbd_head = 0;
-static volatile uint32_t kbd_tail = 0;
+/* Instancia estatica da Fila Circular FIFO de 256 bytes */
+static kbd_fifo_t g_kbd_fifo;
+
+/*
+ * Codificacao em 1 byte para caber no buffer de 256 bytes preservando
+ * tanto caracteres ASCII/CP850 (1..254) quanto comandos negativos (-1..-16):
+ * Comandos negativos (-1 a -16) sao mapeados na faixa 0xF0..0xFF (240..255),
+ * que nao conflita com nenhum caractere usado pelo layout ABNT2 do VGOS.
+ */
+static inline uint8_t codificar_evento_byte(int tecla) {
+  if (tecla < 0) {
+    return (uint8_t)(256 + tecla); /* Ex: -1 vira 255 (0xFF), -16 vira 240 (0xF0) */
+  }
+  return (uint8_t)(tecla & 0xFF);
+}
+
+static inline int decodificar_evento_byte(uint8_t byte_val) {
+  if (byte_val >= 240U) {
+    return (int)byte_val - 256; /* Restaura valores negativos (-16 a -1) */
+  }
+  return (int)byte_val;
+}
+
+void kbd_fifo_init(void) {
+  uint32_t eflags;
+  asm volatile("pushfl; popl %0; cli" : "=r"(eflags) :: "memory");
+
+  g_kbd_fifo.head    = 0;
+  g_kbd_fifo.tail    = 0;
+  g_kbd_fifo.count   = 0;
+  g_kbd_fifo.dropped = 0;
+  for (uint32_t i = 0; i < KBD_BUFFER_SIZE; i++) {
+    g_kbd_fifo.data[i] = 0;
+  }
+
+  asm volatile("pushl %0; popfl" :: "r"(eflags) : "memory");
+}
+
+void kbd_fifo_clear(void) {
+  uint32_t eflags;
+  asm volatile("pushfl; popl %0; cli" : "=r"(eflags) :: "memory");
+
+  g_kbd_fifo.head  = 0;
+  g_kbd_fifo.tail  = 0;
+  g_kbd_fifo.count = 0;
+
+  asm volatile("pushl %0; popfl" :: "r"(eflags) : "memory");
+}
+
+int kbd_fifo_is_empty(void) {
+  return (g_kbd_fifo.count == 0);
+}
+
+int kbd_fifo_is_full(void) {
+  return (g_kbd_fifo.count >= KBD_BUFFER_SIZE);
+}
+
+uint32_t kbd_fifo_count(void) {
+  return g_kbd_fifo.count;
+}
+
+uint32_t kbd_fifo_dropped(void) {
+  return g_kbd_fifo.dropped;
+}
+
+int kbd_fifo_push(uint8_t byte_evento) {
+  uint32_t eflags;
+  asm volatile("pushfl; popl %0; cli" : "=r"(eflags) :: "memory");
+
+  if (g_kbd_fifo.count >= KBD_BUFFER_SIZE) {
+    g_kbd_fifo.dropped++;
+    asm volatile("pushl %0; popfl" :: "r"(eflags) : "memory");
+    return 0; /* Fila cheia: previne overwrite de teclas antigas nao lidas */
+  }
+
+  g_kbd_fifo.data[g_kbd_fifo.head] = byte_evento;
+  g_kbd_fifo.head = (g_kbd_fifo.head + 1U) & KBD_FIFO_MASK;
+  g_kbd_fifo.count++;
+
+  asm volatile("pushl %0; popfl" :: "r"(eflags) : "memory");
+  return 1;
+}
+
+int kbd_fifo_pop(uint8_t *out_byte) {
+  if (out_byte == NULL)
+    return 0;
+
+  uint32_t eflags;
+  asm volatile("pushfl; popl %0; cli" : "=r"(eflags) :: "memory");
+
+  if (g_kbd_fifo.count == 0) {
+    asm volatile("pushl %0; popfl" :: "r"(eflags) : "memory");
+    return 0;
+  }
+
+  *out_byte = g_kbd_fifo.data[g_kbd_fifo.tail];
+  g_kbd_fifo.tail = (g_kbd_fifo.tail + 1U) & KBD_FIFO_MASK;
+  g_kbd_fifo.count--;
+
+  asm volatile("pushl %0; popfl" :: "r"(eflags) : "memory");
+  return 1;
+}
 
 static char aplica_case(char c) {
   int maiuscula_pedida = shift_pressionado ^ capslock_ativo;
@@ -136,7 +235,6 @@ static char combina_acento(char c, int acento) {
 }
 
 static int teclado_processar_scancode(uint8_t scancode) {
-
   // Prefix E0 (teclas estendidas)
   if (scancode == 0xE0) {
     e0_prefix = 1;
@@ -148,7 +246,7 @@ static int teclado_processar_scancode(uint8_t scancode) {
 
     // Release de tecla estendida
     if (scancode & 0x80) {
-      if (scancode == SC_CTRL_L_UP) { // 0x9D: Right Ctrl release
+      if (scancode == SC_CTRL_L_UP) {
         ctrl_pressionado = 0;
       }
       return TECLA_NENHUMA;
@@ -156,7 +254,7 @@ static int teclado_processar_scancode(uint8_t scancode) {
 
     // Press de tecla estendida
     switch (scancode) {
-    case SC_CTRL_L: // 0x1D: Right Ctrl down
+    case SC_CTRL_L:
       ctrl_pressionado = 1;
       return TECLA_NENHUMA;
     case 0x48:
@@ -210,7 +308,7 @@ static int teclado_processar_scancode(uint8_t scancode) {
   }
 
   if (scancode & 0x80)
-    return TECLA_NENHUMA; // solta de outra tecla, ignora
+    return TECLA_NENHUMA;
 
   if (ctrl_pressionado) {
     switch (scancode) {
@@ -231,9 +329,8 @@ static int teclado_processar_scancode(uint8_t scancode) {
   if (scancode == SC_ACENTO_AGUDO_CRASE) {
     int desejado = shift_pressionado ? ACENTO_GRAVE : ACENTO_AGUDO;
     if (acento_pendente == desejado) {
-      // Pressionou o mesmo acento duas vezes: emite o acento isolado
       acento_pendente = ACENTO_NENHUM;
-      return (desejado == ACENTO_GRAVE) ? '`' : (int)(unsigned char)239; // ´
+      return (desejado == ACENTO_GRAVE) ? '`' : (int)(unsigned char)239;
     }
     acento_pendente = desejado;
     return TECLA_NENHUMA;
@@ -242,7 +339,6 @@ static int teclado_processar_scancode(uint8_t scancode) {
   if (scancode == SC_TIL_CIRCUNFLEXO) {
     int desejado = shift_pressionado ? ACENTO_CIRCUNFLEXO : ACENTO_TIL;
     if (acento_pendente == desejado) {
-      // Pressionou o mesmo acento duas vezes: emite o acento isolado
       acento_pendente = ACENTO_NENHUM;
       return (desejado == ACENTO_CIRCUNFLEXO) ? '^' : '~';
     }
@@ -250,17 +346,15 @@ static int teclado_processar_scancode(uint8_t scancode) {
     return TECLA_NENHUMA;
   }
 
-  // Se houver acento pendente e apertar espaço: emite o acento isolado
   if (acento_pendente != ACENTO_NENHUM && scancode == SC_SPACE) {
     int ac = acento_pendente;
     acento_pendente = ACENTO_NENHUM;
-    if (ac == ACENTO_AGUDO) return (int)(unsigned char)239; // ´
+    if (ac == ACENTO_AGUDO) return (int)(unsigned char)239;
     if (ac == ACENTO_GRAVE) return '`';
     if (ac == ACENTO_TIL) return '~';
     if (ac == ACENTO_CIRCUNFLEXO) return '^';
   }
 
-  // Se houver acento pendente e apertar Backspace: apenas cancela o acento
   if (acento_pendente != ACENTO_NENHUM && scancode == SC_BACKSPACE) {
     acento_pendente = ACENTO_NENHUM;
     return TECLA_NENHUMA;
@@ -285,35 +379,29 @@ static void teclado_irq_handler(registers_t *regs) {
   if (tecla == TECLA_NENHUMA)
     return;
 
-  uint32_t next = (kbd_head + 1U) % KBD_BUFFER_SIZE;
-  if (next != kbd_tail) {
-    kbd_buffer[kbd_head] = tecla;
-    kbd_head = next;
-  }
+  kbd_fifo_push(codificar_evento_byte(tecla));
 }
 
 void teclado_init(void) {
   while (inb(KBD_PORT_STATUS) & 1)
     (void)inb(KBD_PORT_DATA);
 
-  kbd_head = 0;
-  kbd_tail = 0;
+  kbd_fifo_init();
   irq_register_handler(KBD_IRQ, teclado_irq_handler);
   pic_unmask_irq(KBD_IRQ);
 }
 
 int teclado_ler(void) {
-  if (kbd_head == kbd_tail)
+  uint8_t byte_evento = 0;
+  if (!kbd_fifo_pop(&byte_evento))
     return TECLA_NENHUMA;
 
-  int tecla = kbd_buffer[kbd_tail];
-  kbd_tail = (kbd_tail + 1U) % KBD_BUFFER_SIZE;
-  return tecla;
+  return decodificar_evento_byte(byte_evento);
 }
 
 void teclado_aguardar(void) {
   asm volatile("cli" ::: "memory");
-  if (kbd_head == kbd_tail) {
+  if (kbd_fifo_is_empty()) {
     asm volatile("sti; hlt" ::: "memory");
   } else {
     asm volatile("sti" ::: "memory");

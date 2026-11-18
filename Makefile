@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
          -Wall -Wextra -MMD -MP \
-         -I. -Iinclude -IRender -Ikeyboard -Icomandos -Iimages/logo -Igdt -Iidt -Iisr
+         -I. -Iinclude -IRender -Icomandos -Iimages/logo -Igdt -Iidt -Iisr
 
 AS = as
 ASFLAGS = --32
@@ -32,7 +32,7 @@ C_SRCS = \
     src/arch/x86/idt.c \
     images/logo/logo.c \
     isr/isr.c \
-    keyboard/keyboard.c \
+    src/drivers/keyboard.c \
     pic/pic.c \
     Render/render.c \
     src/arch/x86/panic.c \
