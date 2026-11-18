@@ -17,11 +17,49 @@ static struct {
 static volatile int panico_em_andamento;
 static uint32_t linha_y;
 
-static void panic_parar(void) __attribute__((noreturn));
-static void panic_parar(void) {
-  // HLT suspende a CPU; o loop impede continuar caso ela seja despertada.
+static inline uint8_t panic_inb(uint16_t port) {
+  uint8_t ret;
+  asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
+  return ret;
+}
+
+static inline void panic_outb(uint16_t port, uint8_t val) {
+  asm volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+static void panic_reiniciar(void) __attribute__((noreturn));
+static void panic_reiniciar(void) {
+  asm volatile("cli" ::: "memory");
+  for (uint32_t i = 0; i < 100000U; i++) {
+    if (!(panic_inb(0x64) & 0x02))
+      break;
+  }
+  panic_outb(0x64, 0xFE);
+
+  struct {
+    uint16_t limit;
+    uint32_t base;
+  } __attribute__((packed)) idt_null = {0, 0};
+  asm volatile("lidt %0; int $0x03" : : "m"(idt_null));
+
   for (;;)
     asm volatile("cli; hlt" ::: "memory");
+}
+
+static void panic_parar(void) __attribute__((noreturn));
+static void panic_parar(void) {
+  // Descarta eventuais bytes pendentes no controlador PS/2 antes de aguardar.
+  while (panic_inb(0x64) & 0x01)
+    (void)panic_inb(0x60);
+
+  for (;;) {
+    if (panic_inb(0x64) & 0x01) {
+      uint8_t sc = panic_inb(0x60);
+      if (sc == 0x1C || sc == 0x13) // Enter ou R pressionados
+        panic_reiniciar();
+    }
+    asm volatile("pause");
+  }
 }
 
 int panic_configurar_video(uint32_t *fb, uint32_t pitch,
@@ -160,6 +198,7 @@ void kernel_panic(const char *message, registers_t *regs) {
 
   panic_separador(linha_y + 3U);
   linha_y += 8;
-  panic_texto("Sistema parado. Reinicie a maquina virtual.", PANIC_DESTAQUE, 2);
+  panic_texto("Sistema parado. Pressione ENTER ou R para reiniciar.",
+              PANIC_DESTAQUE, 2);
   panic_parar();
 }

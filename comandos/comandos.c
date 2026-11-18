@@ -9,6 +9,20 @@
 #include "gfx.h"
 #include "images/logo/logo.h"
 #include "render.h"
+#include <stddef.h>
+
+#define CMD_MAX_LEN  1024
+#define CMD_MAX_ARGS 8
+
+static inline uint8_t cmd_inb(uint16_t port) {
+  uint8_t ret;
+  asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
+  return ret;
+}
+
+static inline void cmd_outb(uint16_t port, uint8_t val) {
+  asm volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
 
 // Escreve exatamente 8 digitos hexadecimais (sem depender de printf/libc).
 static void escrever_hex(char *destino, uint32_t valor) {
@@ -217,15 +231,207 @@ static void mostrar_gdt(int *cursor_y) {
   layout_write_line(acesso, LAYOUT_TEXT, cursor_y);
 }
 
-static int comando_igual(const char *linha, int len, const char *cmd) {
-  int cmd_len = minha_strlen(cmd);
-  if (len != cmd_len)
-    return 0;
-  for (int i = 0; i < len; i++)
-    if (linha[i] != cmd[i])
+typedef struct {
+  const char *nome;
+  int argc;
+  const char *argv[CMD_MAX_ARGS];
+} comando_parsed_t;
+
+typedef comando_resultado_t (*comando_handler_t)(const comando_parsed_t *cmd,
+                                                 int *cursor_y);
+
+typedef struct {
+  const char *nome;
+  comando_handler_t handler;
+} comando_def_t;
+
+static int str_igual(const char *a, const char *b) {
+  int i = 0;
+  while (a[i] != '\0' && b[i] != '\0') {
+    if (a[i] != b[i])
       return 0;
-  return 1;
+    i++;
+  }
+  return a[i] == '\0' && b[i] == '\0';
 }
+
+/*
+ * Analisa a linha digitada, remove espacos extras e separa o comando e seus
+ * argumentos em tokens (argc / argv). Retorna a quantidade de tokens.
+ */
+static int parse_comando(const char *linha, int len, char *buf, int buf_size,
+                         comando_parsed_t *out) {
+  out->nome = NULL;
+  out->argc = 0;
+
+  if (!linha || len <= 0 || buf_size <= 1)
+    return 0;
+
+  int n = len;
+  if (n >= buf_size)
+    n = buf_size - 1;
+  for (int i = 0; i < n; i++)
+    buf[i] = linha[i];
+  buf[n] = '\0';
+
+  int i = 0;
+  while (i < n && out->argc < CMD_MAX_ARGS) {
+    while (i < n && (buf[i] == ' ' || buf[i] == '\t'))
+      i++;
+    if (i >= n)
+      break;
+
+    out->argv[out->argc++] = &buf[i];
+    while (i < n && buf[i] != ' ' && buf[i] != '\t')
+      i++;
+    if (i < n)
+      buf[i++] = '\0';
+  }
+
+  if (out->argc > 0)
+    out->nome = out->argv[0];
+  return out->argc;
+}
+
+static comando_resultado_t cmd_help(const comando_parsed_t *cmd,
+                                    int *cursor_y) {
+  (void)cmd;
+  layout_write_line("------Comandos disponiveis:------", LAYOUT_TEXT, cursor_y);
+  layout_write_line("help    - mostra esta lista", LAYOUT_MUTED, cursor_y);
+  layout_write_line("echo    - exibe texto na tela", LAYOUT_MUTED, cursor_y);
+  layout_write_line("info    - mostra logo e informacoes do sistema", LAYOUT_MUTED, cursor_y);
+  layout_write_line("version - mostra a versao do sistema", LAYOUT_MUTED, cursor_y);
+  layout_write_line("gdt     - verifica a GDT e o TSS", LAYOUT_MUTED, cursor_y);
+  layout_write_line("pmm     - diagnostico do alocador de memoria fisica (PMM)", LAYOUT_MUTED, cursor_y);
+  layout_write_line("panic   - teste fatal; exige reinicio", LAYOUT_MUTED, cursor_y);
+  layout_write_line("reboot  - reinicia o sistema", LAYOUT_MUTED, cursor_y);
+  layout_write_line("clear   - limpa o terminal (tambem Ctrl+L)", LAYOUT_MUTED, cursor_y);
+  layout_write_line("exit    - sai do sistema / desliga", LAYOUT_MUTED, cursor_y);
+  layout_write_line("Ctrl+C  - copia a linha atual", LAYOUT_MUTED, cursor_y);
+  layout_write_line("Ctrl+V  - cola o que foi copiado", LAYOUT_MUTED, cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_gfx(const comando_parsed_t *cmd, int *cursor_y) {
+  (void)cmd;
+  layout_bounds_t area = layout_get_terminal_bounds();
+  layout_next_line(cursor_y);
+  gfx_draw_rect(area.x, *cursor_y, 3 * LAYOUT_CELL_W, LAYOUT_CELL_H, LAYOUT_MUTED);
+  gfx_draw_line(area.x, *cursor_y, area.x + 47, *cursor_y + 23, LAYOUT_ACCENT);
+  gfx_put_pixel(area.x + 47, *cursor_y, LAYOUT_TEXT);
+  gfx_draw_char('V', area.x + LAYOUT_CELL_W, *cursor_y, LAYOUT_TEXT);
+  layout_write_line("VGOS GRAPHICS OK", LAYOUT_TEXT, cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_version(const comando_parsed_t *cmd,
+                                       int *cursor_y) {
+  (void)cmd;
+  layout_write_line(OS_BANNER, LAYOUT_TEXT, cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_echo(const comando_parsed_t *cmd,
+                                    int *cursor_y) {
+  char saida[CMD_MAX_LEN];
+  int pos = 0;
+
+  for (int i = 1; i < cmd->argc && pos < CMD_MAX_LEN - 1; i++) {
+    if (i > 1 && pos < CMD_MAX_LEN - 1)
+      saida[pos++] = ' ';
+    const char *arg = cmd->argv[i];
+    for (int j = 0; arg[j] != '\0' && pos < CMD_MAX_LEN - 1; j++)
+      saida[pos++] = arg[j];
+  }
+  saida[pos] = '\0';
+
+  layout_write_line(saida, LAYOUT_TEXT, cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_info(const comando_parsed_t *cmd,
+                                    int *cursor_y) {
+  (void)cmd;
+  mostrar_info(cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_gdt(const comando_parsed_t *cmd, int *cursor_y) {
+  (void)cmd;
+  mostrar_gdt(cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_pmm(const comando_parsed_t *cmd, int *cursor_y) {
+  (void)cmd;
+  mostrar_pmm(cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_panic(const comando_parsed_t *cmd,
+                                     int *cursor_y) {
+  (void)cmd;
+  (void)cursor_y;
+  // UD2 gera a excecao real #UD (vetor 6), passando por IDT e ISR.
+  asm volatile("ud2" ::: "memory");
+  return COMANDO_OK; // O handler fatal nunca retorna a este ponto.
+}
+
+static comando_resultado_t cmd_clear(const comando_parsed_t *cmd,
+                                     int *cursor_y) {
+  (void)cmd;
+  (void)cursor_y;
+  return COMANDO_LIMPAR;
+}
+
+static comando_resultado_t cmd_exit(const comando_parsed_t *cmd,
+                                    int *cursor_y) {
+  (void)cmd;
+  (void)cursor_y;
+  return COMANDO_EXIT;
+}
+
+static comando_resultado_t cmd_reboot(const comando_parsed_t *cmd,
+                                      int *cursor_y) {
+  (void)cmd;
+  layout_write_line("Reiniciando o VG-OS...", LAYOUT_TEXT, cursor_y);
+  render_flush();
+
+  asm volatile("cli" ::: "memory");
+  for (uint32_t i = 0; i < 100000U; i++) {
+    if (!(cmd_inb(0x64) & 0x02))
+      break;
+  }
+  cmd_outb(0x64, 0xFE);
+
+  // Fallback via triple fault caso o controlador 8042 nao reinicie.
+  struct {
+    uint16_t limit;
+    uint32_t base;
+  } __attribute__((packed)) idt_null = {0, 0};
+  asm volatile("lidt %0; int $0x03" : : "m"(idt_null));
+
+  while (1)
+    asm volatile("hlt");
+  return COMANDO_OK;
+}
+
+static const comando_def_t comandos_nativos[] = {
+    {"help", cmd_help},
+    {"helpet", cmd_help},
+    {"echo", cmd_echo},
+    {"clear", cmd_clear},
+    {"version", cmd_version},
+    {"panic", cmd_panic},
+    {"reboot", cmd_reboot},
+    {"info", cmd_info},
+    {"gdt", cmd_gdt},
+    {"pmm", cmd_pmm},
+    {"mem", cmd_pmm},
+    {"gfx", cmd_gfx},
+    {"exit", cmd_exit},
+    {"sair", cmd_exit},
+};
 
 comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
                                       uint32_t pitch, uint32_t width,
@@ -233,71 +439,19 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
   (void)fb;
   (void)pitch;
   (void)width;
-  if (len == 0)
-    return COMANDO_OK; // Enter sem digitar nada
 
-  if (comando_igual(linha, len, "help") ||
-      comando_igual(linha, len, "helpet")) {
-    layout_write_line("------Comandos disponiveis:------", LAYOUT_TEXT, cursor_y);
-    layout_write_line("help    - mostra esta lista", LAYOUT_MUTED, cursor_y);
-    layout_write_line("info    - mostra logo e informacoes do sistema", LAYOUT_MUTED, cursor_y);
-    layout_write_line("version - mostra a versao do sistema", LAYOUT_MUTED, cursor_y);
-    layout_write_line("gdt     - verifica a GDT e o TSS", LAYOUT_MUTED, cursor_y);
-    layout_write_line("pmm     - diagnostico do alocador de memoria fisica (PMM)", LAYOUT_MUTED, cursor_y);
-    layout_write_line("panic   - teste fatal; exige reinicio", LAYOUT_MUTED, cursor_y);
-    layout_write_line("clear   - limpa o terminal (tambem Ctrl+L)", LAYOUT_MUTED, cursor_y);
-    layout_write_line("exit    - sai do sistema / desliga", LAYOUT_MUTED, cursor_y);
-    layout_write_line("Ctrl+C  - copia a linha atual", LAYOUT_MUTED, cursor_y);
-    layout_write_line("Ctrl+V  - cola o que foi copiado", LAYOUT_MUTED, cursor_y);
-    return COMANDO_OK;
+  char buf[CMD_MAX_LEN];
+  comando_parsed_t cmd;
+  if (parse_comando(linha, len, buf, sizeof(buf), &cmd) == 0)
+    return COMANDO_OK; // Enter sem digitar nada (ou apenas espacos)
+
+  uint32_t total = (uint32_t)(sizeof(comandos_nativos) / sizeof(comandos_nativos[0]));
+  for (uint32_t i = 0; i < total; i++) {
+    if (str_igual(cmd.nome, comandos_nativos[i].nome))
+      return comandos_nativos[i].handler(&cmd, cursor_y);
   }
 
-  /* Teste das primitivas graficas - Tarefa 17 */
-  if (comando_igual(linha, len, "gfx")) {
-    layout_bounds_t area = layout_get_terminal_bounds();
-    layout_next_line(cursor_y);
-    gfx_draw_rect(area.x, *cursor_y, 3 * LAYOUT_CELL_W, LAYOUT_CELL_H, LAYOUT_MUTED);
-    gfx_draw_line(area.x, *cursor_y, area.x + 47, *cursor_y + 23, LAYOUT_ACCENT);
-    gfx_put_pixel(area.x + 47, *cursor_y, LAYOUT_TEXT);
-    gfx_draw_char('V', area.x + LAYOUT_CELL_W, *cursor_y, LAYOUT_TEXT);
-    layout_write_line("VGOS GRAPHICS OK", LAYOUT_TEXT, cursor_y);
-    return COMANDO_OK;
-  }
-  if (comando_igual(linha, len, "version")) {
-    layout_write_line(OS_BANNER, LAYOUT_TEXT, cursor_y);
-    return COMANDO_OK;
-  }
-
-  if (comando_igual(linha, len, "info")) {
-    mostrar_info(cursor_y);
-    return COMANDO_OK;
-  }
-
-  if (comando_igual(linha, len, "gdt")) {
-    mostrar_gdt(cursor_y);
-    return COMANDO_OK;
-  }
-
-  if (comando_igual(linha, len, "pmm") || comando_igual(linha, len, "mem")) {
-    mostrar_pmm(cursor_y);
-    return COMANDO_OK;
-  }
-
-  if (comando_igual(linha, len, "panic")) {
-    // UD2 gera a excecao real #UD (vetor 6), passando por IDT e ISR.
-    asm volatile("ud2" ::: "memory");
-    return COMANDO_OK; // O handler fatal nunca retorna a este ponto.
-  }
-
-  if (comando_igual(linha, len, "clear")) {
-    return COMANDO_LIMPAR;
-  }
-
-  if (comando_igual(linha, len, "exit") || comando_igual(linha, len, "sair")) {
-    return COMANDO_EXIT;
-  }
-
-  // Entrada nao reconhecida: nao mostra erro, kernel avanca o prompt
-  // normalmente
+  layout_write_line("Comando nao encontrado. Digite 'help' para listar.",
+                    LAYOUT_MUTED, cursor_y);
   return COMANDO_OK;
 }
