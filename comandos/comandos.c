@@ -9,6 +9,7 @@
 #include "gfx.h"
 #include "images/logo/logo.h"
 #include "render.h"
+#include "simplefs.h"
 #include <stddef.h>
 
 #define CMD_MAX_LEN  1024
@@ -84,9 +85,27 @@ static int preparar_info_logo(layout_bounds_t area, uint32_t linhas,
 }
 
 static void mostrar_info(int *cursor_y) {
-  char linhas[7][64];
+  char linhas[10][64];
   pmm_stats_t memoria;
   pmm_get_stats(&memoria);
+
+  uint32_t heap_total_kb = (uint32_t)(HEAP_INITIAL_SIZE / 1024U);
+  uint32_t heap_free_kb = (uint32_t)(heap_free_bytes() / 1024U);
+  uint32_t heap_used_kb =
+      (heap_total_kb > heap_free_kb) ? (heap_total_kb - heap_free_kb) : 0U;
+
+  uint32_t sfs_total_kb =
+      (uint32_t)((SFS_MAX_FILES * SFS_FILE_MAX_SIZE) / 1024U);
+  uint32_t sfs_used_kb = 0U;
+  if (sfs_is_ready()) {
+    sfs_entry_t entry;
+    for (int i = 0; i < SFS_MAX_FILES; i++) {
+      if (sfs_get_entry(i, &entry))
+        sfs_used_kb += (uint32_t)(SFS_FILE_MAX_SIZE / 1024U);
+    }
+  }
+  uint32_t sfs_free_kb =
+      (sfs_total_kb > sfs_used_kb) ? (sfs_total_kb - sfs_used_kb) : 0U;
 
   int pos = 0;
   copiar_str(linhas[0], OS_NAME, &pos);
@@ -121,8 +140,36 @@ static void mostrar_info(int *cursor_y) {
 
   escrever_info_uint(linhas[5], "RAM livre: ",
                      memoria.free_memory_kb / 1024U, " MB");
-  escrever_info_uint(linhas[6], "Heap livre: ",
-                     (uint32_t)(heap_free_bytes() / 1024U), " KB");
+
+  pos = 0;
+  copiar_str(linhas[6], "Heap: ", &pos);
+  pos += escrever_uint(linhas[6] + pos, heap_used_kb);
+  copiar_str(linhas[6], " / ", &pos);
+  pos += escrever_uint(linhas[6] + pos, heap_total_kb);
+  copiar_str(linhas[6], " KB", &pos);
+  linhas[6][pos] = '\0';
+
+  escrever_info_uint(linhas[7], "Heap livre: ", heap_free_kb, " KB");
+
+  if (sfs_is_ready()) {
+    pos = 0;
+    copiar_str(linhas[8], "Armazenamento: ", &pos);
+    pos += escrever_uint(linhas[8] + pos, sfs_used_kb);
+    copiar_str(linhas[8], " / ", &pos);
+    pos += escrever_uint(linhas[8] + pos, sfs_total_kb);
+    copiar_str(linhas[8], " KB", &pos);
+    linhas[8][pos] = '\0';
+
+    escrever_info_uint(linhas[9], "Armazenamento livre: ", sfs_free_kb, " KB");
+  } else {
+    pos = 0;
+    copiar_str(linhas[8], "Armazenamento: Nao montado", &pos);
+    linhas[8][pos] = '\0';
+
+    pos = 0;
+    copiar_str(linhas[9], "Armazenamento livre: 0 KB", &pos);
+    linhas[9][pos] = '\0';
+  }
 
   layout_bounds_t area = layout_get_terminal_bounds();
   uint32_t logo_linhas = (logo_height + LAYOUT_CELL_H - 1U) / LAYOUT_CELL_H;
@@ -304,12 +351,13 @@ static comando_resultado_t cmd_help(const comando_parsed_t *cmd,
   layout_write_line("gdt     - verifica a GDT e o TSS", LAYOUT_MUTED, cursor_y);
   layout_write_line("pmm     - diagnostico do alocador de memoria fisica (PMM)", LAYOUT_MUTED, cursor_y);
   layout_write_line("edit    - cria ou edita um arquivo (edit <nome>)", LAYOUT_MUTED, cursor_y);
+  layout_write_line("cat     - exibe o conteudo de um arquivo (cat <nome>)", LAYOUT_MUTED, cursor_y);
   layout_write_line("ls      - lista os arquivos salvos no disco", LAYOUT_MUTED, cursor_y);
   layout_write_line("rm      - remove um arquivo (rm <nome>)", LAYOUT_MUTED, cursor_y);
   layout_write_line("panic   - teste fatal; exige reinicio", LAYOUT_MUTED, cursor_y);
   layout_write_line("reboot  - reinicia o sistema", LAYOUT_MUTED, cursor_y);
-  layout_write_line("clear   - limpa o terminal (tambem Ctrl+L)", LAYOUT_MUTED, cursor_y);
   layout_write_line("exit    - sai do sistema / desliga", LAYOUT_MUTED, cursor_y);
+  layout_write_line("Ctrl+L  - limpa o terminal (tambem clear)", LAYOUT_MUTED, cursor_y);
   layout_write_line("Ctrl+C  - copia a linha atual", LAYOUT_MUTED, cursor_y);
   layout_write_line("Ctrl+V  - cola o que foi copiado", LAYOUT_MUTED, cursor_y);
   return COMANDO_OK;

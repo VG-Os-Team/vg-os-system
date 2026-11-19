@@ -2,12 +2,14 @@
 
 #include "comandos.h"
 #include "gfx.h"
+#include "include/heap.h"
 #include "include/panic.h"
 #include "include/video.h"
 #include "keyboard.h"
 #include "layout.h"
 #include "render.h"
 #include "simplefs.h"
+#include <stddef.h>
 #include <stdint.h>
 
 #define LINHA_MAX 1024
@@ -39,6 +41,47 @@ static int str_equals(const char *a, const char *b) {
     b++;
   }
   return (*a == '\0' && *b == '\0');
+}
+
+static int shell_append_str(char *dst, int pos, int max, const char *src) {
+  while (*src && pos < max - 1)
+    dst[pos++] = *src++;
+  dst[pos] = '\0';
+  return pos;
+}
+
+static int shell_append_uint(char *dst, int pos, int max, uint32_t val) {
+  char tmp[12];
+  int i = 0;
+  if (val == 0) {
+    if (pos < max - 1)
+      dst[pos++] = '0';
+    dst[pos] = '\0';
+    return pos;
+  }
+  while (val > 0) {
+    tmp[i++] = (char)('0' + (val % 10U));
+    val /= 10U;
+  }
+  while (i > 0 && pos < max - 1)
+    dst[pos++] = tmp[--i];
+  dst[pos] = '\0';
+  return pos;
+}
+
+static int shell_append_kb(char *dst, int pos, int max, uint32_t bytes) {
+  uint32_t kb_int = bytes / 1024U;
+  uint32_t kb_dec = ((bytes % 1024U) * 100U) / 1024U;
+  if (bytes > 0U && kb_int == 0U && kb_dec == 0U)
+    kb_dec = 1U;
+
+  pos = shell_append_uint(dst, pos, max, kb_int);
+  pos = shell_append_str(dst, pos, max, ".");
+  if (kb_dec < 10U && pos < max - 1)
+    dst[pos++] = '0';
+  pos = shell_append_uint(dst, pos, max, kb_dec);
+  pos = shell_append_str(dst, pos, max, " KB");
+  return pos;
 }
 
 static void iniciar_prompt(entrada_t *e) {
@@ -96,8 +139,8 @@ static int apagar_char(entrada_t *e) {
 
 static int executar_comando_fs(entrada_t *e) {
   /* Comando: edit <filename> */
-  if (str_starts_with(e->linha, "edit ")) {
-    const char *nome = e->linha + 5;
+  if (str_equals(e->linha, "edit") || str_starts_with(e->linha, "edit ")) {
+    const char *nome = e->linha + 4;
     while (*nome == ' ')
       nome++;
     if (*nome == '\0') {
@@ -115,8 +158,91 @@ static int executar_comando_fs(entrada_t *e) {
       iniciar_prompt(e);
       return 1;
     }
+    size_t area_bytes = (size_t)e->area.width * (size_t)e->area.height * sizeof(uint32_t);
+    uint32_t *tela_salva = (uint32_t *)kmalloc(area_bytes);
+    uint32_t *fb = video_get_draw_buffer();
+    uint32_t stride = video_get_draw_pitch() >> 2;
+
+    if (tela_salva != NULL && fb != NULL) {
+      for (int row = 0; row < e->area.height; row++) {
+        uint32_t *src = &fb[(e->area.y + row) * stride + e->area.x];
+        uint32_t *dst = &tela_salva[row * e->area.width];
+        for (int col = 0; col < e->area.width; col++)
+          dst[col] = src[col];
+      }
+    }
+
     editor_open(nome);
-    limpar_terminal(e);
+
+    if (tela_salva != NULL && fb != NULL) {
+      for (int row = 0; row < e->area.height; row++) {
+        uint32_t *src = &tela_salva[row * e->area.width];
+        uint32_t *dst = &fb[(e->area.y + row) * stride + e->area.x];
+        for (int col = 0; col < e->area.width; col++)
+          dst[col] = src[col];
+      }
+      kfree(tela_salva);
+      layout_next_line(&e->y);
+      iniciar_prompt(e);
+    } else {
+      if (tela_salva != NULL)
+        kfree(tela_salva);
+      limpar_terminal(e);
+    }
+    return 1;
+  }
+
+  /* Comando: cat <filename> */
+  if (str_equals(e->linha, "cat") || str_starts_with(e->linha, "cat ")) {
+    const char *nome = e->linha + 3;
+    while (*nome == ' ')
+      nome++;
+    if (*nome == '\0') {
+      layout_next_line(&e->y);
+      layout_write_line("Uso: cat <nome_do_arquivo>", LAYOUT_MUTED, &e->y);
+      layout_next_line(&e->y);
+      iniciar_prompt(e);
+      return 1;
+    }
+    if (!sfs_is_ready()) {
+      layout_next_line(&e->y);
+      layout_write_line("Erro: SimpleFS nao montado.", LAYOUT_MUTED, &e->y);
+      layout_next_line(&e->y);
+      iniciar_prompt(e);
+      return 1;
+    }
+
+    static char cat_buf[SFS_FILE_MAX_SIZE];
+    uint32_t size = 0;
+    if (sfs_read_file(nome, cat_buf, SFS_FILE_MAX_SIZE, &size) != 0) {
+      layout_next_line(&e->y);
+      layout_write_line("Arquivo nao encontrado.", LAYOUT_MUTED, &e->y);
+      layout_next_line(&e->y);
+      iniciar_prompt(e);
+      return 1;
+    }
+
+    if (size == 0) {
+      layout_write_line("(arquivo vazio)", LAYOUT_MUTED, &e->y);
+    } else {
+      char linha_tmp[LINHA_MAX];
+      int pos = 0;
+      for (uint32_t i = 0; i < size; i++) {
+        if (cat_buf[i] == '\n') {
+          linha_tmp[pos] = '\0';
+          layout_write_line(linha_tmp, LAYOUT_TEXT, &e->y);
+          pos = 0;
+        } else if (pos < LINHA_MAX - 1) {
+          linha_tmp[pos++] = cat_buf[i];
+        }
+      }
+      if (pos > 0) {
+        linha_tmp[pos] = '\0';
+        layout_write_line(linha_tmp, LAYOUT_TEXT, &e->y);
+      }
+    }
+    layout_next_line(&e->y);
+    iniciar_prompt(e);
     return 1;
   }
 
@@ -126,16 +252,35 @@ static int executar_comando_fs(entrada_t *e) {
     if (!sfs_is_ready()) {
       layout_write_line("Erro: SimpleFS nao montado.", LAYOUT_MUTED, &e->y);
     } else {
-      int achou = 0;
+      uint32_t count = 0;
+      uint32_t total_bytes = 0;
       sfs_entry_t entry;
       for (int i = 0; i < SFS_MAX_FILES; i++) {
         if (sfs_get_entry(i, &entry)) {
-          layout_write_line(entry.name, LAYOUT_TEXT, &e->y);
-          achou = 1;
+          char item[128];
+          int pos = shell_append_str(item, 0, sizeof(item), entry.name);
+          while (pos < 24 && pos < (int)sizeof(item) - 1)
+            item[pos++] = ' ';
+          item[pos] = '\0';
+          pos = shell_append_kb(item, pos, sizeof(item), entry.size);
+          layout_write_line(item, LAYOUT_TEXT, &e->y);
+          count++;
+          total_bytes += entry.size;
         }
       }
-      if (!achou) {
+      if (count == 0) {
         layout_write_line("(nenhum arquivo salvo)", LAYOUT_MUTED, &e->y);
+      } else {
+        char resumo[128];
+        int pos = shell_append_str(resumo, 0, sizeof(resumo), "Total: ");
+        pos = shell_append_uint(resumo, pos, sizeof(resumo), count);
+        pos = shell_append_str(resumo, pos, sizeof(resumo), " arquivo(s) | ");
+        pos = shell_append_kb(resumo, pos, sizeof(resumo), total_bytes);
+        pos = shell_append_str(resumo, pos, sizeof(resumo), " usados (");
+        pos = shell_append_uint(resumo, pos, sizeof(resumo),
+                                count * (SFS_FILE_MAX_SIZE / 1024U));
+        pos = shell_append_str(resumo, pos, sizeof(resumo), " KB reservados)");
+        layout_write_line(resumo, LAYOUT_MUTED, &e->y);
       }
     }
     layout_next_line(&e->y);
@@ -144,10 +289,17 @@ static int executar_comando_fs(entrada_t *e) {
   }
 
   /* Comando: rm <filename> */
-  if (str_starts_with(e->linha, "rm ")) {
-    const char *nome = e->linha + 3;
+  if (str_equals(e->linha, "rm") || str_starts_with(e->linha, "rm ")) {
+    const char *nome = e->linha + 2;
     while (*nome == ' ')
       nome++;
+    if (*nome == '\0') {
+      layout_next_line(&e->y);
+      layout_write_line("Uso: rm <nome_do_arquivo>", LAYOUT_MUTED, &e->y);
+      layout_next_line(&e->y);
+      iniciar_prompt(e);
+      return 1;
+    }
     layout_next_line(&e->y);
     if (sfs_delete_file(nome) == 0) {
       layout_write_line("Arquivo removido.", LAYOUT_TEXT, &e->y);

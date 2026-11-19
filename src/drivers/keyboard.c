@@ -50,6 +50,8 @@ static const char kbd_ABNT2_shift[128] = {
 #define SC_L           0x26
 #define SC_C           0x2E
 #define SC_V           0x2F
+#define SC_O           0x18
+#define SC_X           0x2D
 
 #define SC_ACENTO_AGUDO_CRASE 0x1A
 #define SC_TIL_CIRCUNFLEXO    0x28
@@ -318,6 +320,10 @@ static int teclado_processar_scancode(uint8_t scancode) {
       return TECLA_CTRL_C;
     case SC_V:
       return TECLA_CTRL_V;
+    case SC_O:
+      return TECLA_CTRL_O;
+    case SC_X:
+      return TECLA_CTRL_X;
     }
     return TECLA_NENHUMA;
   }

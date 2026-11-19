@@ -11,6 +11,8 @@
 #define TECLA_CTRL_L       -1  // limpar terminal
 #define TECLA_CTRL_C       -2  // copiar linha atual
 #define TECLA_CTRL_V       -3  // colar
+#define TECLA_CTRL_O       -4  // salvar arquivo no editor
+#define TECLA_CTRL_X       -5  // sair do editor
 
 #define TECLA_SETA_CIMA    -10
 #define TECLA_SETA_BAIXO   -11
