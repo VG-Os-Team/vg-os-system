@@ -303,6 +303,9 @@ static comando_resultado_t cmd_help(const comando_parsed_t *cmd,
   layout_write_line("version - mostra a versao do sistema", LAYOUT_MUTED, cursor_y);
   layout_write_line("gdt     - verifica a GDT e o TSS", LAYOUT_MUTED, cursor_y);
   layout_write_line("pmm     - diagnostico do alocador de memoria fisica (PMM)", LAYOUT_MUTED, cursor_y);
+  layout_write_line("edit    - cria ou edita um arquivo (edit <nome>)", LAYOUT_MUTED, cursor_y);
+  layout_write_line("ls      - lista os arquivos salvos no disco", LAYOUT_MUTED, cursor_y);
+  layout_write_line("rm      - remove um arquivo (rm <nome>)", LAYOUT_MUTED, cursor_y);
   layout_write_line("panic   - teste fatal; exige reinicio", LAYOUT_MUTED, cursor_y);
   layout_write_line("reboot  - reinicia o sistema", LAYOUT_MUTED, cursor_y);
   layout_write_line("clear   - limpa o terminal (tambem Ctrl+L)", LAYOUT_MUTED, cursor_y);

@@ -19,3 +19,4 @@ isodir/
 *.swp
 *~
 .DS_Store
+disk.img

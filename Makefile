@@ -14,6 +14,7 @@ LDFLAGS = -m elf_i386 -T linker.ld
 
 BUILD_DIR = build
 ISO = vgos.iso
+DISK_IMG = disk.img
 
 BIN_1080 = $(BUILD_DIR)/meuos-1080.bin
 BIN_1440 = $(BUILD_DIR)/meuos-1440.bin
@@ -25,6 +26,8 @@ C_SRCS = \
     src/ui/layout.c \
     src/ui/splash.c \
     src/shell/shell.c \
+    src/shell/editor.c \
+    src/fs/simplefs.c \
     kernel.c \
     strutil.c \
     comandos/comandos.c \
@@ -34,6 +37,7 @@ C_SRCS = \
     images/logo/logo.c \
     isr/isr.c \
     src/drivers/keyboard.c \
+    src/drivers/ata.c \
     pic/pic.c \
     Render/render.c \
     src/arch/x86/panic.c \
@@ -43,7 +47,6 @@ C_SRCS = \
     src/mm/heap.c \
     src/drivers/video.c \
     src/drivers/gfx.c
-
 
 # Fontes Assembly com sintaxe GNU Assembler (GAS)
 GAS_SRCS = \
@@ -118,9 +121,10 @@ iso: $(BIN) $(BIN_1080) $(BIN_1440) $(BIN_1024)
 	@cp boot/grub.cfg iso_root/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO) iso_root
 
-# Execucao no QEMU
+# Execucao no QEMU com disco virtual IDE Primary Master (16 MB)
 run: iso
-	qemu-system-i386 -cdrom $(ISO) -vga std
+	if [ ! -f $(DISK_IMG) ]; then qemu-img create -f raw $(DISK_IMG) 16M; fi
+	qemu-system-i386 -cdrom $(ISO) -hda $(DISK_IMG) -vga std
 
 # Limpeza completa dos artefatos de build
 clean:
