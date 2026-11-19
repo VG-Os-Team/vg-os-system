@@ -14,24 +14,31 @@ A 32-bit x86 operating system developed from scratch for academic and low-level 
 ## 📋 Main Features
 * **Custom Kernel (32-bit Protected Mode):** Written in C and x86 Assembly with manual memory, interrupt, and hardware management.
 * **GDT, IDT, PIC, and TSS:** GDT with 6 descriptors, 32-bit TSS loaded via `LTR`, IDT with 32 CPU exceptions and 16 IRQ lines via remapped 8259A PIC (including spurious IRQ handling and per-line masking).
-* **Kernel Panic:** Fatal error screen displaying the message, CPU registers saved at the exception, and halting via `CLI`/`HLT`, integrated into all 32 exception handlers. The `panic` command triggers `UD2` for demonstration.
+* **Kernel Panic:** Fatal error screen displaying the message, CPU registers saved at the exception, and direct keyboard reboot option (**Enter** or **R**), integrated into all 32 exception handlers. The `panic` command triggers `UD2` for demonstration.
 * **Multiboot Bootloader (GRUB):** Boot menu resolution selection (`1920×1080`, `1440×1080`, `1024×768`) initializing VESA graphics mode directly at boot.
 * **Boot Splash Screen:** Displays the official VG OS logo, version banner (`OS_BANNER`), and a real-time progress bar tracking each kernel initialization stage.
 * **Linear Framebuffer Graphics (VESA), Double Buffering & Primitives:**
   - RAM backbuffer allocation (`video_init_backbuffer`) and fast 32-bit copy (`rep movsl`) to VRAM via `render_flush()`, preserving line pitch padding.
   - Drawing primitives (`gfx.c`): pixels, rectangles, lines, and strings using a scaled (2x) bitmap font.
   - Modular graphical layout (`src/ui/layout.c`) with header, scrollable terminal window, and responsive footer showing backbuffer status and shortcuts.
-* **Interrupt-Driven PS/2 Keyboard Driver (IRQ1):**
-  - **IRQ1** handler reading Set 1 scancodes from I/O port `0x60` into a circular buffer, with low-power idle waiting (`sti; hlt`).
+* **Interrupt-Driven PS/2 Keyboard Driver (IRQ1) & 256-Byte FIFO Queue:**
+  - **IRQ1** handler reading Set 1 scancodes from I/O port `0x60` into a formal 256-byte circular FIFO buffer (`kbd_fifo_t`), with low-power idle waiting (`sti; hlt`).
   - Support for the **Brazilian ABNT2** layout (including `ç` / `Ç`, `/ ?`, and dead-key accents `´`, `` ` ``, `~`, `^`).
-  - Extended scancode support (`0xE0`: arrow keys, Delete, Home, End, Right Ctrl) and shortcuts (`Ctrl+L`, `Ctrl+C`, `Ctrl+V`).
+  - Extended scancode support (`0xE0`: arrow keys, Delete, Home, End, Right Ctrl) and shortcuts (`Ctrl+L`, `Ctrl+C`, `Ctrl+V`, `Ctrl+O`, `Ctrl+X`).
   - Shift, Caps Lock, Enter, Backspace, and key repeat handling.
 * **Memory Management (PMM, x86 Paging & Heap):**
   - **PMM (4KB Bitmap):** Physical page allocator initialized from the Multiboot memory map, protecting low memory, kernel sections, VESA framebuffer, and Multiboot structures.
   - **x86 Paging:** Identity mapping of the kernel and framebuffer VRAM.
   - **Dynamic Kernel Heap:** `kmalloc` / `kfree` allocator backed by PMM pages.
-* **Integrated Interactive Terminal:**
-  - Built-in commands: `help`, `info` (renders logo with live system, video, RAM, and Heap stats), `version`, `clear`, `exit`, `gdt`, `pmm`, `panic`.
+* **Persistent Storage (28-bit ATA PIO Driver & SimpleFS):**
+  - **ATA PIO Driver (`src/drivers/ata.c`):** 28-bit LBA sector reading and writing on the primary IDE bus (`0x1F0`–`0x1F7`).
+  - **SimpleFS (`src/fs/simplefs.c`):** Custom on-disk filesystem (`VGFS`) with automatic formatting, superblock, directory table supporting up to 64 files, and up to 4 KB (8 sectors) per file.
+* **Integrated Text Editor (`src/shell/editor.c`):**
+  - Create and edit persistent files on SimpleFS via `edit <filename>`.
+  - Dedicated shortcuts: **`Ctrl+O`** to save to disk, **`Ctrl+X`** (or `ESC`) to exit the editor, plus **`Ctrl+C`** and **`Ctrl+V`** to copy and paste lines while editing.
+* **Modular Interactive Shell (`shell_run`) & Command Parser:**
+  - Main shell loop isolated in `src/shell/shell.c` and syntactic parser (`argc`/`argv`) with dispatch table in `comandos/comandos.c`.
+  - Built-in commands: `help`, `echo`, `info` (renders logo with live system, video, RAM, and Heap stats), `version`, `edit <name>`, `cat <name>` (prints file contents to the terminal), `ls`, `rm <name>`, `gdt`, `pmm` (`mem`), `gfx`, `panic`, `reboot`, `clear`, and `exit` (`sair`).
   - Automatic line wrapping, scrolling, and multiline Backspace handling.
 * **Modular Architecture & Testing:**
   - Centralized system versioning (`version.h`).
@@ -78,13 +85,12 @@ vg-os-system/
 ├── gdt/            # Global Descriptor Table and TSS (gdt.c, gdt.h, gdt_asm.s, tss.c, tss.h)
 ├── idt/            # Interrupt Descriptor Table (idt.c, idt.h, idt_asm.s)
 ├── images/         # Graphical assets and bitmap logo (images/logo/)
-├── include/        # Centralized headers (video.h, gfx.h, layout.h, splash.h, pmm.h, paging.h, heap.h, panic.h, idt.h, multiboot.h)
+├── include/        # Centralized headers (ata.h, simplefs.h, shell.h, keyboard.h, video.h, gfx.h, layout.h, splash.h, pmm.h, paging.h, heap.h, panic.h, idt.h, multiboot.h)
 ├── iso_root/       # Directory structure used by grub-mkrescue
 ├── isr/            # CPU interrupt and exception handlers (isr.c, isr.h, interrupts.s)
-├── keyboard/       # IRQ1-driven PS/2 keyboard driver and ABNT2 scancodes (keyboard.c, keyboard.h)
 ├── pic/            # 8259 PIC remap, EOI, and IRQ masking (pic.c, pic.h)
 ├── Render/         # Bitmap font text rendering and logo drawing (render.c, render.h, font.h)
-├── src/            # Organized subsystems: arch/x86/ (idt, panic), drivers/ (video, gfx), mm/ (pmm, paging, heap), and ui/ (layout, splash)
+├── src/            # Organized subsystems: arch/x86/ (idt, panic), drivers/ (video, gfx, keyboard, ata), fs/ (simplefs), mm/ (pmm, paging, heap), shell/ (shell, editor), and ui/ (layout, splash)
 ├── tests/          # Isolated native tests (render_flush_test.c via make test-video)
 ├── build/          # Binaries (.bin) and object files (.o) generated during compilation
 ├── kernel.c        # Kernel entry point (kernel_main) and main loop

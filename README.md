@@ -14,24 +14,31 @@ Um sistema operacional x86 de 32 bits desenvolvido do zero para fins acadêmicos
 ## 📋 Funcionalidades Principais
 * **Kernel Próprio (Modo Protegido 32-bit):** Escrito em C e Assembly x86 com gerenciamento manual de memória, interrupções e periféricos.
 * **GDT, IDT, PIC e TSS:** GDT com 6 descritores, TSS de 32 bits carregado por `LTR`, IDT com 32 exceções da CPU e 16 linhas de IRQ via PIC 8259A remapeado (com detecção de IRQs espúrias e controle individual de máscara).
-* **Kernel Panic:** Tela de erro fatal com mensagem, registradores salvos na exceção e parada em `CLI`/`HLT`, integrada aos 32 tratadores de exceção. O comando `panic` provoca `UD2` para demonstração.
+* **Kernel Panic:** Tela de erro fatal com mensagem, registradores salvos na exceção e opção de reinício imediato pelo teclado (**Enter** ou **R**), integrada aos 32 tratadores de exceção. O comando `panic` provoca `UD2` para demonstração.
 * **Bootloader Multiboot (GRUB):** Seleção de resolução no menu de boot (`1920×1080`, `1440×1080`, `1024×768`) inicializando o modo gráfico VESA diretamente no boot.
 * **Tela de Carregamento (Splash Screen):** Exibição da logo oficial do VG OS, versão (`OS_BANNER`) e barra de progresso acompanhando as etapas reais de inicialização do kernel.
 * **Saída Gráfica em Framebuffer Linear (VESA), Double Buffering & Primitivas:**
   - Alocação de *backbuffer* na RAM (`video_init_backbuffer`) e cópia otimizada em 32 bits (`rep movsl`) para a VRAM via `render_flush()`, preservando *padding* de *pitch*.
   - Primitivas gráficas de desenho (`gfx.c`): pixels, retângulos, linhas e strings com fonte bitmap escalonada (2x).
   - Layout gráfico modular (`src/ui/layout.c`) com cabeçalho, janela de terminal com rolagem e rodapé responsivo exibindo status do backbuffer e atalhos.
-* **Driver de Teclado PS/2 por Interrupção (IRQ1):**
-  - Handler registrado na **IRQ1** lendo scancodes (Set 1) da porta `0x60` e enfileirando em buffer circular, com espera de baixo consumo (`sti; hlt`).
+* **Driver de Teclado PS/2 por Interrupção (IRQ1) & Fila FIFO de 256 Bytes:**
+  - Handler registrado na **IRQ1** lendo scancodes (Set 1) da porta `0x60` e enfileirando em uma fila circular FIFO formal de 256 bytes (`kbd_fifo_t`), com espera de baixo consumo (`sti; hlt`).
   - Suporte ao padrão **ABNT2 brasileiro** (incluindo `ç` / `Ç`, `/ ?` e *dead keys* de acentuação `´`, `` ` ``, `~`, `^`).
-  - Suporte a scancodes estendidos (`0xE0`: setas direcionais, Delete, Home, End, Ctrl Direito) e atalhos (`Ctrl+L`, `Ctrl+C`, `Ctrl+V`).
+  - Suporte a scancodes estendidos (`0xE0`: setas direcionais, Delete, Home, End, Ctrl Direito) e atalhos (`Ctrl+L`, `Ctrl+C`, `Ctrl+V`, `Ctrl+O`, `Ctrl+X`).
   - Tratamento de Shift, Caps Lock, Enter, Backspace e repetição de teclas.
 * **Gerenciamento de Memória (PMM, Paginação x86 e Heap):**
   - **PMM (4KB Bitmap):** Alocador de páginas físicas inicializado pelo mapa de memória Multiboot, protegendo baixa memória, kernel, framebuffer e estruturas do Multiboot.
   - **Paginação x86:** *Identity map* do kernel e da VRAM do framebuffer.
   - **Heap Dinâmico:** Alocador `kmalloc` / `kfree` construído sobre páginas fornecidas pelo PMM.
-* **Terminal Interativo Integrado:**
-  - Comandos embutidos: `help`, `info` (exibe logo e métricas de sistema, vídeo, RAM e Heap), `version`, `clear`, `exit`, `gdt`, `pmm`, `panic`.
+* **Armazenamento Persistente (Driver ATA PIO 28-bit & SimpleFS):**
+  - **Driver ATA PIO (`src/drivers/ata.c`):** Leitura e escrita de setores LBA de 28 bits no barramento IDE primário (`0x1F0`–`0x1F7`).
+  - **SimpleFS (`src/fs/simplefs.c`):** Sistema de arquivos próprio em disco (`VGFS`) com formatação automática, superbloco, tabela de diretórios para até 64 arquivos e até 4 KB (8 setores) por arquivo.
+* **Editor de Texto Integrado (`src/shell/editor.c`):**
+  - Criação e edição de arquivos persistentes no SimpleFS via comando `edit <nome>`.
+  - Atalhos dedicados: **`Ctrl+O`** para salvar no disco, **`Ctrl+X`** (ou `ESC`) para sair do editor, além de **`Ctrl+C`** e **`Ctrl+V`** para copiar e colar linhas durante a edição.
+* **Shell Modular (`shell_run`) & Parser de Comandos:**
+  - Loop principal do shell isolado em `src/shell/shell.c` e parser sintático (`argc`/`argv`) com tabela de handlers em `comandos/comandos.c`.
+  - Comandos nativos: `help`, `echo`, `info` (logo e métricas do sistema, vídeo, RAM e Heap), `version`, `edit <nome>`, `cat <nome>` (exibe o conteúdo de um arquivo no terminal), `ls`, `rm <nome>`, `gdt`, `pmm` (`mem`), `gfx`, `panic`, `reboot`, `clear` e `exit` (`sair`).
   - Quebra automática de linha (*line wrap*), rolagem e Backspace multilinha.
 * **Arquitetura Modular & Testes:**
   - Centralização de versão do sistema (`version.h`).
@@ -78,13 +85,12 @@ vg-os-system/
 ├── gdt/            # Global Descriptor Table e TSS (gdt.c, gdt.h, gdt_asm.s, tss.c, tss.h)
 ├── idt/            # Interrupt Descriptor Table (idt.c, idt.h, idt_asm.s)
 ├── images/         # Recursos gráficos e logotipo em matriz de pixels (images/logo/)
-├── include/        # Cabeçalhos centralizados (video.h, gfx.h, layout.h, splash.h, pmm.h, paging.h, heap.h, panic.h, idt.h, multiboot.h)
+├── include/        # Cabeçalhos centralizados (ata.h, simplefs.h, shell.h, keyboard.h, video.h, gfx.h, layout.h, splash.h, pmm.h, paging.h, heap.h, panic.h, idt.h, multiboot.h)
 ├── iso_root/       # Estrutura base de diretórios utilizada pelo grub-mkrescue
 ├── isr/            # Tratadores de interrupções e exceções da CPU (isr.c, isr.h, interrupts.s)
-├── keyboard/       # Driver do teclado PS/2 via IRQ1 e scancodes ABNT2 (keyboard.c, keyboard.h)
 ├── pic/            # Remapeamento, EOI e máscara do controlador 8259 PIC (pic.c, pic.h)
 ├── Render/         # Renderização de texto em fonte bitmap e logotipo (render.c, render.h, font.h)
-├── src/            # Subsistemas organizados: arch/x86/ (idt, panic), drivers/ (video, gfx), mm/ (pmm, paging, heap) e ui/ (layout, splash)
+├── src/            # Subsistemas: arch/x86/ (idt, panic), drivers/ (video, gfx, keyboard, ata), fs/ (simplefs), mm/ (pmm, paging, heap), shell/ (shell, editor) e ui/ (layout, splash)
 ├── tests/          # Testes nativos isolados (render_flush_test.c via make test-video)
 ├── build/          # Binários (.bin) e arquivos objeto (.o) gerados na compilação
 ├── kernel.c        # Ponto de entrada do kernel (kernel_main) e ciclo principal
