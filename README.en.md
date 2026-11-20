@@ -15,7 +15,7 @@ A 32-bit x86 operating system developed from scratch for academic and low-level 
 * **Custom Kernel (32-bit Protected Mode):** Written in C and x86 Assembly with manual memory, interrupt, and hardware management.
 * **GDT, IDT, PIC, and TSS:** GDT with 6 descriptors, 32-bit TSS loaded via `LTR`, IDT with 32 CPU exceptions and 16 IRQ lines via remapped 8259A PIC (including spurious IRQ handling and per-line masking).
 * **Kernel Panic:** Fatal error screen displaying the message, CPU registers saved at the exception, and direct keyboard reboot option (**Enter** or **R**), integrated into all 32 exception handlers. The `panic` command triggers `UD2` for demonstration.
-* **Multiboot Bootloader (GRUB):** Boot menu resolution selection (`1920×1080`, `1440×1080`, `1024×768`) initializing VESA graphics mode directly at boot.
+* **Multiboot Bootloader (GRUB) & Bilingual Support (PT-BR / EN):** Boot menu resolution (`1920×1080`, `1440×1080`, `1024×768`) and initial language selection (`[PT-BR]` or `[EN]` via `cmdline`), plus runtime language switching with the `lang` command.
 * **Boot Splash Screen:** Displays the official VG OS logo, version banner (`OS_BANNER`), and a real-time progress bar tracking each kernel initialization stage.
 * **Linear Framebuffer Graphics (VESA), Double Buffering & Primitives:**
   - RAM backbuffer allocation (`video_init_backbuffer`) and fast 32-bit copy (`rep movsl`) to VRAM via `render_flush()`, preserving line pitch padding.
@@ -38,7 +38,7 @@ A 32-bit x86 operating system developed from scratch for academic and low-level 
   - Dedicated shortcuts: **`Ctrl+O`** to save to disk, **`Ctrl+X`** (or `ESC`) to exit the editor, plus **`Ctrl+C`** and **`Ctrl+V`** to copy and paste lines while editing.
 * **Modular Interactive Shell (`shell_run`) & Command Parser:**
   - Main shell loop isolated in `src/shell/shell.c` and syntactic parser (`argc`/`argv`) with dispatch table in `comandos/comandos.c`.
-  - Built-in commands: `help`, `echo`, `info` (renders logo with live system, video, RAM, and Heap stats), `version`, `edit <name>`, `cat <name>` (prints file contents to the terminal), `ls`, `rm <name>`, `gdt`, `pmm` (`mem`), `gfx`, `panic`, `reboot`, `clear`, and `exit` (`sair`).
+  - Built-in commands: `help`, `lang <pt|en>` (switches UI and menu language at runtime), `echo`, `info` (renders logo with live system, video, RAM, Heap, and Storage stats), `version`, `edit <name>`, `cat <name>` (prints file contents to the terminal), `ls`, `rm <name>`, `gdt`, `pmm` (`mem`), `gfx`, `panic`, `reboot`, `clear`, and `exit` (`sair`).
   - Automatic line wrapping, scrolling, and multiline Backspace handling.
 * **Modular Architecture & Testing:**
   - Centralized system versioning (`version.h`).

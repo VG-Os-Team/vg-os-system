@@ -15,7 +15,7 @@ Um sistema operacional x86 de 32 bits desenvolvido do zero para fins acadêmicos
 * **Kernel Próprio (Modo Protegido 32-bit):** Escrito em C e Assembly x86 com gerenciamento manual de memória, interrupções e periféricos.
 * **GDT, IDT, PIC e TSS:** GDT com 6 descritores, TSS de 32 bits carregado por `LTR`, IDT com 32 exceções da CPU e 16 linhas de IRQ via PIC 8259A remapeado (com detecção de IRQs espúrias e controle individual de máscara).
 * **Kernel Panic:** Tela de erro fatal com mensagem, registradores salvos na exceção e opção de reinício imediato pelo teclado (**Enter** ou **R**), integrada aos 32 tratadores de exceção. O comando `panic` provoca `UD2` para demonstração.
-* **Bootloader Multiboot (GRUB):** Seleção de resolução no menu de boot (`1920×1080`, `1440×1080`, `1024×768`) inicializando o modo gráfico VESA diretamente no boot.
+* **Bootloader Multiboot (GRUB) & Suporte Bilíngue (PT-BR / EN):** Seleção de resolução (`1920×1080`, `1440×1080`, `1024×768`) e idioma inicial (`[PT-BR]` ou `[EN]` via `cmdline`) diretamente no menu de boot, além de troca em tempo de execução pelo comando `lang`.
 * **Tela de Carregamento (Splash Screen):** Exibição da logo oficial do VG OS, versão (`OS_BANNER`) e barra de progresso acompanhando as etapas reais de inicialização do kernel.
 * **Saída Gráfica em Framebuffer Linear (VESA), Double Buffering & Primitivas:**
   - Alocação de *backbuffer* na RAM (`video_init_backbuffer`) e cópia otimizada em 32 bits (`rep movsl`) para a VRAM via `render_flush()`, preservando *padding* de *pitch*.
@@ -38,7 +38,7 @@ Um sistema operacional x86 de 32 bits desenvolvido do zero para fins acadêmicos
   - Atalhos dedicados: **`Ctrl+O`** para salvar no disco, **`Ctrl+X`** (ou `ESC`) para sair do editor, além de **`Ctrl+C`** e **`Ctrl+V`** para copiar e colar linhas durante a edição.
 * **Shell Modular (`shell_run`) & Parser de Comandos:**
   - Loop principal do shell isolado em `src/shell/shell.c` e parser sintático (`argc`/`argv`) com tabela de handlers em `comandos/comandos.c`.
-  - Comandos nativos: `help`, `echo`, `info` (logo e métricas do sistema, vídeo, RAM e Heap), `version`, `edit <nome>`, `cat <nome>` (exibe o conteúdo de um arquivo no terminal), `ls`, `rm <nome>`, `gdt`, `pmm` (`mem`), `gfx`, `panic`, `reboot`, `clear` e `exit` (`sair`).
+  - Comandos nativos: `help`, `lang <pt|en>` (alterna o idioma da interface e menus em tempo real), `echo`, `info` (logo e métricas do sistema, vídeo, RAM, Heap e Armazenamento), `version`, `edit <nome>`, `cat <nome>` (exibe o conteúdo de um arquivo no terminal), `ls`, `rm <nome>`, `gdt`, `pmm` (`mem`), `gfx`, `panic`, `reboot`, `clear` e `exit` (`sair`).
   - Quebra automática de linha (*line wrap*), rolagem e Backspace multilinha.
 * **Arquitetura Modular & Testes:**
   - Centralização de versão do sistema (`version.h`).
