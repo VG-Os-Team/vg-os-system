@@ -1,5 +1,6 @@
 #include "layout.h"
 #include "gfx.h"
+#include "lang.h"
 #include "render.h"
 #include "version.h"
 #include "video.h"
@@ -34,18 +35,29 @@ static void draw_bar(int y, int height, int width, const char *left,
 }
 
 static void draw_footer(int w, int h) {
-    static const char keys[] = "Ctrl+L limpar  Ctrl+C copiar  Ctrl+V colar";
+    static const char keys_pt[] = "Ctrl+L limpar  Ctrl+C copiar  Ctrl+V colar";
+    static const char keys_en[] = "Ctrl+L clear   Ctrl+C copy    Ctrl+V paste";
+    const char *keys = L(keys_pt, keys_en);
     int buffered = video_is_double_buffered();
-    static const char active[] = "Shell | Backbuffer ativo";
-    static const char inactive[] = "Shell | Backbuffer inativo";
+    static const char active_pt[] = "Shell | Backbuffer ativo";
+    static const char active_en[] = "Shell | Backbuffer active";
+    static const char inactive_pt[] = "Shell | Backbuffer inativo";
+    static const char inactive_en[] = "Shell | Backbuffer inactive";
     static const char active_compact[] = "Shell | BB on";
     static const char inactive_compact[] = "Shell | BB off";
-    const char *status = buffered ? active : inactive;
+    const char *status = buffered ? L(active_pt, active_en) : L(inactive_pt, inactive_en);
     int columns = (w - 2 * MARGIN) / LAYOUT_CELL_W;
-    if (columns < (int)sizeof(inactive) - 1)
+    if (columns < (int)sizeof(inactive_pt) - 1)
         status = buffered ? active_compact : inactive_compact;
-    draw_bar(h - FOOTER, FOOTER, w, status, keys, sizeof(keys) - 1);
+    draw_bar(h - FOOTER, FOOTER, w, status, keys, sizeof(keys_pt) - 1);
     gfx_draw_rect(0, h - FOOTER, w, 1, BORDER);
+}
+
+void layout_refresh_chrome(void) {
+    int w = video_get_width(), h = video_get_height();
+    if (!terminal.width)
+        return;
+    draw_footer(w, h);
 }
 
 void layout_draw(void) {

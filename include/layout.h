@@ -18,6 +18,7 @@ typedef struct {
 } layout_bounds_t;
 
 void layout_draw(void);
+void layout_refresh_chrome(void);
 layout_bounds_t layout_get_terminal_bounds(void);
 
 /* Avanca uma linha, rolando somente os pixels da grade quando necessario. */

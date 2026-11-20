@@ -8,6 +8,7 @@
 #include "include/video.h"
 #include "gfx.h"
 #include "images/logo/logo.h"
+#include "lang.h"
 #include "render.h"
 #include "simplefs.h"
 #include <stddef.h>
@@ -112,7 +113,7 @@ static void mostrar_info(int *cursor_y) {
   linhas[0][pos] = '\0';
 
   pos = 0;
-  copiar_str(linhas[1], "Versao: ", &pos);
+  copiar_str(linhas[1], L("Versao: ", "Version: "), &pos);
   copiar_str(linhas[1], OS_VERSION "-" OS_STAGE, &pos);
   linhas[1][pos] = '\0';
 
@@ -121,7 +122,7 @@ static void mostrar_info(int *cursor_y) {
   linhas[2][pos] = '\0';
 
   pos = 0;
-  copiar_str(linhas[3], "Tela: ", &pos);
+  copiar_str(linhas[3], L("Tela: ", "Screen: "), &pos);
   pos += escrever_uint(linhas[3] + pos, video_get_width());
   copiar_str(linhas[3], "x", &pos);
   pos += escrever_uint(linhas[3] + pos, video_get_height());
@@ -138,7 +139,7 @@ static void mostrar_info(int *cursor_y) {
   copiar_str(linhas[4], " MB", &pos);
   linhas[4][pos] = '\0';
 
-  escrever_info_uint(linhas[5], "RAM livre: ",
+  escrever_info_uint(linhas[5], L("RAM livre: ", "Free RAM: "),
                      memoria.free_memory_kb / 1024U, " MB");
 
   pos = 0;
@@ -149,25 +150,29 @@ static void mostrar_info(int *cursor_y) {
   copiar_str(linhas[6], " KB", &pos);
   linhas[6][pos] = '\0';
 
-  escrever_info_uint(linhas[7], "Heap livre: ", heap_free_kb, " KB");
+  escrever_info_uint(linhas[7], L("Heap livre: ", "Free Heap: "), heap_free_kb,
+                     " KB");
 
   if (sfs_is_ready()) {
     pos = 0;
-    copiar_str(linhas[8], "Armazenamento: ", &pos);
+    copiar_str(linhas[8], L("Armazenamento: ", "Storage: "), &pos);
     pos += escrever_uint(linhas[8] + pos, sfs_used_kb);
     copiar_str(linhas[8], " / ", &pos);
     pos += escrever_uint(linhas[8] + pos, sfs_total_kb);
     copiar_str(linhas[8], " KB", &pos);
     linhas[8][pos] = '\0';
 
-    escrever_info_uint(linhas[9], "Armazenamento livre: ", sfs_free_kb, " KB");
+    escrever_info_uint(linhas[9], L("Armazenamento livre: ", "Free storage: "),
+                       sfs_free_kb, " KB");
   } else {
     pos = 0;
-    copiar_str(linhas[8], "Armazenamento: Nao montado", &pos);
+    copiar_str(linhas[8],
+               L("Armazenamento: Nao montado", "Storage: Not mounted"), &pos);
     linhas[8][pos] = '\0';
 
     pos = 0;
-    copiar_str(linhas[9], "Armazenamento livre: 0 KB", &pos);
+    copiar_str(linhas[9],
+               L("Armazenamento livre: 0 KB", "Free storage: 0 KB"), &pos);
     linhas[9][pos] = '\0';
   }
 
@@ -343,23 +348,87 @@ static int parse_comando(const char *linha, int len, char *buf, int buf_size,
 static comando_resultado_t cmd_help(const comando_parsed_t *cmd,
                                     int *cursor_y) {
   (void)cmd;
-  layout_write_line("------Comandos disponiveis:------", LAYOUT_TEXT, cursor_y);
-  layout_write_line("help    - mostra esta lista", LAYOUT_MUTED, cursor_y);
-  layout_write_line("echo    - exibe texto na tela", LAYOUT_MUTED, cursor_y);
-  layout_write_line("info    - mostra logo e informacoes do sistema", LAYOUT_MUTED, cursor_y);
-  layout_write_line("version - mostra a versao do sistema", LAYOUT_MUTED, cursor_y);
-  layout_write_line("gdt     - verifica a GDT e o TSS", LAYOUT_MUTED, cursor_y);
-  layout_write_line("pmm     - diagnostico do alocador de memoria fisica (PMM)", LAYOUT_MUTED, cursor_y);
-  layout_write_line("edit    - cria ou edita um arquivo (edit <nome>)", LAYOUT_MUTED, cursor_y);
-  layout_write_line("cat     - exibe o conteudo de um arquivo (cat <nome>)", LAYOUT_MUTED, cursor_y);
-  layout_write_line("ls      - lista os arquivos salvos no disco", LAYOUT_MUTED, cursor_y);
-  layout_write_line("rm      - remove um arquivo (rm <nome>)", LAYOUT_MUTED, cursor_y);
-  layout_write_line("panic   - teste fatal; exige reinicio", LAYOUT_MUTED, cursor_y);
-  layout_write_line("reboot  - reinicia o sistema", LAYOUT_MUTED, cursor_y);
-  layout_write_line("exit    - sai do sistema / desliga", LAYOUT_MUTED, cursor_y);
-  layout_write_line("Ctrl+L  - limpa o terminal (tambem clear)", LAYOUT_MUTED, cursor_y);
-  layout_write_line("Ctrl+C  - copia a linha atual", LAYOUT_MUTED, cursor_y);
-  layout_write_line("Ctrl+V  - cola o que foi copiado", LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("------Comandos disponiveis:------",
+                      "------Available commands:--------"),
+                    LAYOUT_TEXT, cursor_y);
+  layout_write_line(L("help    - mostra esta lista",
+                      "help    - show this list"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("lang    - altera o idioma (lang pt / lang en)",
+                      "lang    - change language (lang pt / lang en)"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("echo    - exibe texto na tela",
+                      "echo    - print text to screen"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("info    - mostra logo e informacoes do sistema",
+                      "info    - show logo and system information"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("version - mostra a versao do sistema",
+                      "version - show system version"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("gdt     - verifica a GDT e o TSS",
+                      "gdt     - verify GDT and TSS"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("pmm     - diagnostico do alocador de memoria fisica (PMM)",
+                      "pmm     - physical memory manager (PMM) diagnostics"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("edit    - cria ou edita um arquivo (edit <nome>)",
+                      "edit    - create or edit a file (edit <name>)"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("cat     - exibe o conteudo de um arquivo (cat <nome>)",
+                      "cat     - display file contents (cat <name>)"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("ls      - lista os arquivos salvos no disco",
+                      "ls      - list saved files on disk"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("rm      - remove um arquivo (rm <nome>)",
+                      "rm      - remove a file (rm <name>)"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("panic   - teste fatal; exige reinicio",
+                      "panic   - fatal exception test"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("reboot  - reinicia o sistema",
+                      "reboot  - restart the system"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("exit    - sai do sistema / desliga",
+                      "exit    - shut down the system"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("Ctrl+L  - limpa o terminal (tambem clear)",
+                      "Ctrl+L  - clear terminal (also clear)"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("Ctrl+C  - copia a linha atual",
+                      "Ctrl+C  - copy current line"),
+                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(L("Ctrl+V  - cola o que foi copiado",
+                      "Ctrl+V  - paste copied text"),
+                    LAYOUT_MUTED, cursor_y);
+  return COMANDO_OK;
+}
+
+static comando_resultado_t cmd_lang(const comando_parsed_t *cmd,
+                                    int *cursor_y) {
+  if (cmd->argc >= 2) {
+    if (str_igual(cmd->argv[1], "en") || str_igual(cmd->argv[1], "EN")) {
+      lang_set(LANG_EN);
+      layout_refresh_chrome();
+      layout_write_line("Language changed to English (EN).", LAYOUT_ACCENT,
+                        cursor_y);
+      return COMANDO_OK;
+    }
+    if (str_igual(cmd->argv[1], "pt") || str_igual(cmd->argv[1], "PT") ||
+        str_igual(cmd->argv[1], "pt-br")) {
+      lang_set(LANG_PT);
+      layout_refresh_chrome();
+      layout_write_line("Idioma alterado para Portugues (PT-BR).",
+                        LAYOUT_ACCENT, cursor_y);
+      return COMANDO_OK;
+    }
+  }
+
+  layout_write_line(
+      L("Idioma atual: Portugues (PT-BR) | Uso: lang <pt|en>",
+        "Current language: English (EN) | Usage: lang <pt|en>"),
+      LAYOUT_MUTED, cursor_y);
   return COMANDO_OK;
 }
 
@@ -378,7 +447,8 @@ static comando_resultado_t cmd_gfx(const comando_parsed_t *cmd, int *cursor_y) {
 static comando_resultado_t cmd_version(const comando_parsed_t *cmd,
                                        int *cursor_y) {
   (void)cmd;
-  layout_write_line(OS_BANNER, LAYOUT_TEXT, cursor_y);
+  layout_write_line(L(OS_BANNER, OS_NAME " Version " OS_VERSION "-" OS_STAGE),
+                    LAYOUT_TEXT, cursor_y);
   return COMANDO_OK;
 }
 
@@ -445,7 +515,8 @@ static comando_resultado_t cmd_exit(const comando_parsed_t *cmd,
 static comando_resultado_t cmd_reboot(const comando_parsed_t *cmd,
                                       int *cursor_y) {
   (void)cmd;
-  layout_write_line("Reiniciando o VG-OS...", LAYOUT_TEXT, cursor_y);
+  layout_write_line(L("Reiniciando o VG-OS...", "Restarting VG-OS..."),
+                    LAYOUT_TEXT, cursor_y);
   render_flush();
 
   asm volatile("cli" ::: "memory");
@@ -470,6 +541,7 @@ static comando_resultado_t cmd_reboot(const comando_parsed_t *cmd,
 static const comando_def_t comandos_nativos[] = {
     {"help", cmd_help},
     {"helpet", cmd_help},
+    {"lang", cmd_lang},
     {"echo", cmd_echo},
     {"clear", cmd_clear},
     {"version", cmd_version},
@@ -502,7 +574,9 @@ comando_resultado_t comandos_executar(const char *linha, int len, uint32_t *fb,
       return comandos_nativos[i].handler(&cmd, cursor_y);
   }
 
-  layout_write_line("Comando nao encontrado. Digite 'help' para listar.",
-                    LAYOUT_MUTED, cursor_y);
+  layout_write_line(
+      L("Comando nao encontrado. Digite 'help' para listar.",
+        "Command not found. Type 'help' to list commands."),
+      LAYOUT_MUTED, cursor_y);
   return COMANDO_OK;
 }

@@ -3,6 +3,7 @@
 #include "gfx.h"
 #include "images/logo/logo.h"
 #include "include/video.h"
+#include "lang.h"
 #include "layout.h"
 #include "render.h"
 #include "strutil.h"
@@ -46,12 +47,14 @@ void splash_show(uint32_t width, uint32_t height) {
                   logo_x, logo_y);
   }
 
-  int banner_len = minha_strlen(OS_BANNER);
+  const char *banner =
+      L(OS_BANNER, OS_NAME " Version " OS_VERSION "-" OS_STAGE);
+  int banner_len = minha_strlen(banner);
   int banner_x = ((int)width - banner_len * RENDER_CHAR_WIDTH) / 2;
   int banner_y = logo_y + (int)logo_height + 20;
   if (banner_x < 0)
     banner_x = 0;
-  gfx_draw_string(OS_BANNER, (uint32_t)banner_x, (uint32_t)banner_y, LAYOUT_TEXT);
+  gfx_draw_string(banner, (uint32_t)banner_x, (uint32_t)banner_y, LAYOUT_TEXT);
 
   uint32_t bar_x, bar_y;
   calcular_pos_barra(width, height, &bar_x, &bar_y);

@@ -1,6 +1,7 @@
 #include "gfx.h"
 #include "include/video.h"
 #include "keyboard.h"
+#include "lang.h"
 #include "layout.h"
 #include "render.h"
 #include "simplefs.h"
@@ -58,8 +59,9 @@ static void editor_draw(const layout_bounds_t *area, const char *filename,
 
   int info_x = area->x + 28 * LAYOUT_CELL_W;
   if (info_x < area->x + area->width) {
-    gfx_draw_string("Ctrl+O: Salvar | Ctrl+X: Sair", info_x, y,
-                    LAYOUT_MUTED);
+    gfx_draw_string(
+        L("Ctrl+O: Salvar | Ctrl+X: Sair", "Ctrl+O: Save | Ctrl+X: Exit"),
+        info_x, y, LAYOUT_MUTED);
   }
 
   y += LAYOUT_CELL_H;
@@ -127,10 +129,11 @@ void editor_open(const char *filename) {
   static char editor_clipboard[SFS_FILE_MAX_SIZE];
   static uint32_t editor_clip_len = 0;
   uint32_t len = 0;
-  const char *status = "Novo arquivo (nao salvo).";
+  const char *status =
+      L("Novo arquivo (nao salvo).", "New file (unsaved).");
 
   if (sfs_read_file(filename, buf, SFS_FILE_MAX_SIZE, &len) == 0) {
-    status = "Arquivo carregado do disco.";
+    status = L("Arquivo carregado do disco.", "File loaded from disk.");
   } else {
     len = 0;
     buf[0] = '\0';
@@ -153,9 +156,11 @@ void editor_open(const char *filename) {
     /* Salvar com Ctrl+O */
     if (tecla == TECLA_CTRL_O) {
       if (sfs_write_file(filename, buf, len) == 0) {
-        status = "Salvo com sucesso no SimpleFS!";
+        status = L("Salvo com sucesso no SimpleFS!",
+                   "Successfully saved to SimpleFS!");
       } else {
-        status = "Erro ao salvar no disco ATA.";
+        status = L("Erro ao salvar no disco ATA.",
+                   "Error saving to ATA disk.");
       }
       editor_draw(&area, filename, buf, len, status);
       continue;
@@ -172,7 +177,8 @@ void editor_open(const char *filename) {
         editor_clipboard[editor_clip_len++] = buf[i];
       }
       editor_clipboard[editor_clip_len] = '\0';
-      status = "Linha copiada (Ctrl+V para colar).";
+      status = L("Linha copiada (Ctrl+V para colar).",
+                 "Line copied (Ctrl+V to paste).");
       editor_draw(&area, filename, buf, len, status);
       continue;
     }
@@ -185,7 +191,8 @@ void editor_open(const char *filename) {
           buf[len++] = editor_clipboard[i++];
         }
         buf[len] = '\0';
-        status = "Texto colado (Ctrl+O para salvar).";
+        status = L("Texto colado (Ctrl+O para salvar).",
+                   "Text pasted (Ctrl+O to save).");
         editor_draw(&area, filename, buf, len, status);
       }
       continue;
@@ -196,7 +203,8 @@ void editor_open(const char *filename) {
       if (len > 0) {
         len--;
         buf[len] = '\0';
-        status = "Modificado (Ctrl+O para salvar).";
+        status = L("Modificado (Ctrl+O para salvar).",
+                   "Modified (Ctrl+O to save).");
         editor_draw(&area, filename, buf, len, status);
       }
       continue;
@@ -206,7 +214,8 @@ void editor_open(const char *filename) {
     if (tecla == '\n' && len < SFS_FILE_MAX_SIZE - 1) {
       buf[len++] = '\n';
       buf[len] = '\0';
-      status = "Modificado (Ctrl+O para salvar).";
+      status = L("Modificado (Ctrl+O para salvar).",
+                 "Modified (Ctrl+O to save).");
       editor_draw(&area, filename, buf, len, status);
       continue;
     }
@@ -214,7 +223,8 @@ void editor_open(const char *filename) {
     if (tecla >= 32 && tecla <= 255 && len < SFS_FILE_MAX_SIZE - 1) {
       buf[len++] = (char)tecla;
       buf[len] = '\0';
-      status = "Modificado (Ctrl+O para salvar).";
+      status = L("Modificado (Ctrl+O para salvar).",
+                 "Modified (Ctrl+O to save).");
       editor_draw(&area, filename, buf, len, status);
     }
   }

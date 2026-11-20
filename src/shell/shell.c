@@ -6,6 +6,7 @@
 #include "include/panic.h"
 #include "include/video.h"
 #include "keyboard.h"
+#include "lang.h"
 #include "layout.h"
 #include "render.h"
 #include "simplefs.h"
@@ -145,15 +146,17 @@ static int executar_comando_fs(entrada_t *e) {
       nome++;
     if (*nome == '\0') {
       layout_next_line(&e->y);
-      layout_write_line("Uso: edit <nome_do_arquivo>", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("Uso: edit <nome_do_arquivo>", "Usage: edit <filename>"),
+                        LAYOUT_MUTED, &e->y);
       layout_next_line(&e->y);
       iniciar_prompt(e);
       return 1;
     }
     if (!sfs_is_ready()) {
       layout_next_line(&e->y);
-      layout_write_line("Erro: Disco ATA/SimpleFS nao detectado.", LAYOUT_MUTED,
-                        &e->y);
+      layout_write_line(L("Erro: Disco ATA/SimpleFS nao detectado.",
+                          "Error: ATA disk/SimpleFS not detected."),
+                        LAYOUT_MUTED, &e->y);
       layout_next_line(&e->y);
       iniciar_prompt(e);
       return 1;
@@ -199,14 +202,17 @@ static int executar_comando_fs(entrada_t *e) {
       nome++;
     if (*nome == '\0') {
       layout_next_line(&e->y);
-      layout_write_line("Uso: cat <nome_do_arquivo>", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("Uso: cat <nome_do_arquivo>", "Usage: cat <filename>"),
+                        LAYOUT_MUTED, &e->y);
       layout_next_line(&e->y);
       iniciar_prompt(e);
       return 1;
     }
     if (!sfs_is_ready()) {
       layout_next_line(&e->y);
-      layout_write_line("Erro: SimpleFS nao montado.", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("Erro: SimpleFS nao montado.",
+                          "Error: SimpleFS not mounted."),
+                        LAYOUT_MUTED, &e->y);
       layout_next_line(&e->y);
       iniciar_prompt(e);
       return 1;
@@ -216,14 +222,15 @@ static int executar_comando_fs(entrada_t *e) {
     uint32_t size = 0;
     if (sfs_read_file(nome, cat_buf, SFS_FILE_MAX_SIZE, &size) != 0) {
       layout_next_line(&e->y);
-      layout_write_line("Arquivo nao encontrado.", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("Arquivo nao encontrado.", "File not found."),
+                        LAYOUT_MUTED, &e->y);
       layout_next_line(&e->y);
       iniciar_prompt(e);
       return 1;
     }
 
     if (size == 0) {
-      layout_write_line("(arquivo vazio)", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("(arquivo vazio)", "(empty file)"), LAYOUT_MUTED, &e->y);
     } else {
       char linha_tmp[LINHA_MAX];
       int pos = 0;
@@ -250,7 +257,9 @@ static int executar_comando_fs(entrada_t *e) {
   if (str_equals(e->linha, "ls")) {
     layout_next_line(&e->y);
     if (!sfs_is_ready()) {
-      layout_write_line("Erro: SimpleFS nao montado.", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("Erro: SimpleFS nao montado.",
+                          "Error: SimpleFS not mounted."),
+                        LAYOUT_MUTED, &e->y);
     } else {
       uint32_t count = 0;
       uint32_t total_bytes = 0;
@@ -269,17 +278,21 @@ static int executar_comando_fs(entrada_t *e) {
         }
       }
       if (count == 0) {
-        layout_write_line("(nenhum arquivo salvo)", LAYOUT_MUTED, &e->y);
+        layout_write_line(L("(nenhum arquivo salvo)", "(no saved files)"),
+                          LAYOUT_MUTED, &e->y);
       } else {
         char resumo[128];
         int pos = shell_append_str(resumo, 0, sizeof(resumo), "Total: ");
         pos = shell_append_uint(resumo, pos, sizeof(resumo), count);
-        pos = shell_append_str(resumo, pos, sizeof(resumo), " arquivo(s) | ");
+        pos = shell_append_str(resumo, pos, sizeof(resumo),
+                               L(" arquivo(s) | ", " file(s) | "));
         pos = shell_append_kb(resumo, pos, sizeof(resumo), total_bytes);
-        pos = shell_append_str(resumo, pos, sizeof(resumo), " usados (");
+        pos = shell_append_str(resumo, pos, sizeof(resumo),
+                               L(" usados (", " used ("));
         pos = shell_append_uint(resumo, pos, sizeof(resumo),
                                 count * (SFS_FILE_MAX_SIZE / 1024U));
-        pos = shell_append_str(resumo, pos, sizeof(resumo), " KB reservados)");
+        pos = shell_append_str(resumo, pos, sizeof(resumo),
+                               L(" KB reservados)", " KB reserved)"));
         layout_write_line(resumo, LAYOUT_MUTED, &e->y);
       }
     }
@@ -295,16 +308,19 @@ static int executar_comando_fs(entrada_t *e) {
       nome++;
     if (*nome == '\0') {
       layout_next_line(&e->y);
-      layout_write_line("Uso: rm <nome_do_arquivo>", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("Uso: rm <nome_do_arquivo>", "Usage: rm <filename>"),
+                        LAYOUT_MUTED, &e->y);
       layout_next_line(&e->y);
       iniciar_prompt(e);
       return 1;
     }
     layout_next_line(&e->y);
     if (sfs_delete_file(nome) == 0) {
-      layout_write_line("Arquivo removido.", LAYOUT_TEXT, &e->y);
+      layout_write_line(L("Arquivo removido.", "File removed."), LAYOUT_TEXT,
+                        &e->y);
     } else {
-      layout_write_line("Arquivo nao encontrado.", LAYOUT_MUTED, &e->y);
+      layout_write_line(L("Arquivo nao encontrado.", "File not found."),
+                        LAYOUT_MUTED, &e->y);
     }
     layout_next_line(&e->y);
     iniciar_prompt(e);
@@ -377,13 +393,15 @@ void shell_run(void) {
       if (r == COMANDO_LIMPAR) {
         limpar_terminal(&entrada);
       } else if (r == COMANDO_EXIT) {
-        layout_write_line("Desligando o VG-OS...", LAYOUT_TEXT, &entrada.y);
+        layout_write_line(L("Desligando o VG-OS...", "Shutting down VG-OS..."),
+                          LAYOUT_TEXT, &entrada.y);
         render_flush();
         outw(0x604, 0x2000);
         outw(0xB004, 0x2000);
         outw(0x4004, 0x3400);
         layout_write_line(
-            "Sistema finalizado. Pode desligar o computador com seguranca.",
+            L("Sistema finalizado. Pode desligar o computador com seguranca.",
+              "System halted. It is now safe to turn off your computer."),
             LAYOUT_MUTED, &entrada.y);
         render_flush();
         asm volatile("cli");

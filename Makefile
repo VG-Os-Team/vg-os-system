@@ -24,6 +24,7 @@ BIN      = $(BUILD_DIR)/meuos.bin
 # Fontes C do kernel e subsistemas
 C_SRCS = \
     src/ui/layout.c \
+    src/ui/lang.c \
     src/ui/splash.c \
     src/shell/shell.c \
     src/shell/editor.c \
